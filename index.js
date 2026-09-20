@@ -12,14 +12,21 @@
   if (store.enabled == null) store.enabled = true;
   if (store.clear == null) store.clear = false;
 
+  const toSlider = (v) => {
+    let n = Number(v);
+    if (!Number.isFinite(n)) return 40;
+    if (n > 0 && n <= 10) n = n * 10;
+    return Math.max(0, Math.min(90, Math.round(n)));
+  };
   const cfg = () => {
-    const g = Number(store.gain);
-    const base = Number.isFinite(g) ? Math.max(1, Math.min(10, g)) : 4;
+    const slider = toSlider(store.gain);
+    const gain = slider / 10;
     const clear = store.clear === true;
     return {
       enabled: store.enabled !== false,
       clear,
-      gain: clear ? Math.min(base, 1.5) : base,
+      slider,
+      gain,
       bitrate: store.bitrate === 384000 ? 384000 : 512000,
       raw: clear ? false : store.raw !== false,
       stereo: store.stereo !== false,
@@ -177,6 +184,52 @@
     }
   };
 
+  const patchMicSettings = () => {
+    try {
+      const Forms = ui.components?.Forms ?? (() => { try { return findByProps("FormRow", "FormSwitchRow", "FormSection"); } catch { return null; } })();
+      const RN = metro.common?.ReactNative;
+      if (!Forms || !React || !RN) return;
+      const E = React.createElement;
+      function BoostSection() {
+        const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
+        const slider = cfg().slider;
+        const SliderComp = Forms.Slider ?? Forms.FormSlider ?? (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN.Slider ?? null;
+        const mkSwitch = (title, key) => E(Forms.FormSwitchRow ?? Forms.FormRow, { label: title, value: !!store[key], onValueChange: (v) => { store[key] = !!v; forceUpdate(); } });
+        const sliderEl = SliderComp
+          ? E(RN.View, { style: { paddingHorizontal: 16, paddingVertical: 8 } }, E(RN.Text, { style: { color: "#fff", marginBottom: 8 } }, `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x)`), E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); forceUpdate(); } }))
+          : E(Forms.FormRow, { label: `Volume: ${slider}/90` });
+        const Section = Forms.FormSection || (({ children, title }) => E(RN.View, null, title ? E(RN.Text, { style: { fontWeight: "700", padding: 16 } }, title) : null, children));
+        return E(Section, { title: "Input Boost — Mic" }, mkSwitch("Boost enabled", "enabled"), mkSwitch("Clear audio", "clear"), mkSwitch("Raw mode", "raw"), E(Forms.FormRow ?? RN.View, { label: `Stereo + max bitrate: ${store.stereo ? "on" : "off"}` }), sliderEl);
+      }
+      const makeSection = () => E(BoostSection, null);
+      const candidates = [];
+      const tryFind = (fn) => { try { const r = fn(); if (r) candidates.push(r); } catch {} };
+      tryFind(() => metro.findByName("VoiceSettings", false));
+      tryFind(() => { try { return metro.findByDisplayName("VoiceSettings"); } catch { return null; } });
+      tryFind(() => findByProps("VoiceSettings"));
+      tryFind(() => findByProps("setNoiseSuppression", "setEchoCancellation"));
+      tryFind(() => findByProps("VOICE_SETTINGS_PANEL"));
+      for (const mod of candidates) {
+        const target = mod?.default ? mod : mod;
+        if (target && typeof target.default === "function") {
+          try {
+            const undo = patcher.after("default", target, (args, ret) => {
+              try {
+                if (!ret || !ret.props) return ret;
+                const ch = ret.props.children;
+                if (Array.isArray(ch)) ch.push(makeSection());
+                else if (ch) ret.props.children = [ch, makeSection()];
+              } catch (e) { logger.info("mic settings append failed " + e); }
+              return ret;
+            });
+            if (undo) { patches.push(undo); logger.info("patched mic settings (VoiceSettings)"); return; }
+          } catch (e) { logger.info("voice patch failed " + e); }
+        }
+      }
+      logger.info("mic settings patch: VoiceSettings not found, use plugin settings");
+    } catch (e) { logger.info("patchMicSettings failed " + e); }
+  };
+
   const FormOrRow = (...els) => els.some((e) => !!e);
   const TextEl = (ui2) => ui2.components?.Forms?.FormText || ui2.components?.FormRow || "Text";
 
@@ -200,11 +253,20 @@
           rows.push(E(Section, { title: "Input Boost" }, E(T, { variant: "text-md/semibold", style: { paddingHorizontal: 16, paddingTop: 8 } }, "Hot mic: Clear = loud & clean (1.5x), Raw = overdriven & distorted (up to 10x).")));
 
           const mkSwitch = (title, key) => E(SwitchRow, { label: title, value: !!store[key], onValueChange: (v) => { store[key] = !!v; } });
+          const SliderComp = Forms.Slider ?? Forms.FormSlider ?? (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN?.Slider ?? null;
           const mkGain = () => {
-            if (!InputComp || InputComp === RN?.TextInput) {
-              return E(Row, { label: "Gain (max 1.5 clear / 10 raw)", trailing: E(RN.TextInput, { value: String(store.gain), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center" }, onChangeText: (t) => { const n = Number(t); store.gain = Number.isFinite(n) ? n : store.gain; } }) });
+            const slider = cfg().slider;
+            const label = `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x)`;
+            if (SliderComp) {
+              return E(RN?.View ?? View ?? "View", { style: { paddingHorizontal: 16, paddingVertical: 12 } },
+                E(RN?.Text ?? Text ?? "Text", { style: { color: "#fff", marginBottom: 8 } }, label),
+                E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); }, style: { width: "100%" } })
+              );
             }
-            return E(Row, { label: "Gain (max 1.5 clear / 10 raw)", trailing: E(InputComp, { value: String(store.gain), keyboardType: "number-pad", onChangeText: (t) => { const n = Number(t); store.gain = Number.isFinite(n) ? n : store.gain; } }) });
+            if (!InputComp || InputComp === RN?.TextInput) {
+              return E(Row, { label, trailing: E(RN.TextInput, { value: String(slider), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center" }, onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) store.gain = Math.max(0, Math.min(90, Math.round(n))); } }) });
+            }
+            return E(Row, { label, trailing: E(InputComp, { value: String(slider), keyboardType: "number-pad", onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) store.gain = Math.max(0, Math.min(90, Math.round(n))); } }) });
           };
 
           rows.push(mkSwitch("Boost enabled", "enabled"));
@@ -223,9 +285,19 @@
           const rowStyle = { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#333" };
           const titleStyle = { fontSize: 16, color: "#fff", flex: 1, paddingRight: 12 };
           const mkSwitch = (title, key) => E(View, { style: rowStyle }, E(Text, { style: titleStyle }, title), E(Switch, { value: !!store[key], onValueChange: (v) => { store[key] = !!v; } }));
-          const mkGain = () => E(View, { style: rowStyle }, E(Text, { style: titleStyle }, "Gain (1-10, 1.5 max in clear)"), E(TextInput, { value: String(store.gain), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center", color: "#fff" }, onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) store.gain = n; } }));
+          const SliderComp = (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN.Slider ?? null;
+          const mkGain = () => {
+            const slider = cfg().slider;
+            if (SliderComp) {
+              return E(View, { style: { paddingHorizontal: 16, paddingVertical: 12 } },
+                E(Text, { style: { ...titleStyle, marginBottom: 8 } }, `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x)`),
+                E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); } })
+              );
+            }
+            return E(View, { style: rowStyle }, E(Text, { style: titleStyle }, `Volume: ${slider}/90`), E(TextInput, { value: String(slider), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center", color: "#fff" }, onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) store.gain = Math.max(0, Math.min(90, Math.round(n))); } }));
+          };
           return E(Container, { style: { flex: 1, paddingTop: 8 } },
-            E(View, { style: { padding: 16, backgroundColor: "#222", borderRadius: 8, margin: 16 } }, E(Text, { style: { color: "#aaa", fontSize: 13 } }, "Hot mic: Clear = loud & clean (1.5x), Raw = overdriven & distorted (up to 10x). Listeners control their own volume.")),
+            E(View, { style: { padding: 16, backgroundColor: "#222", borderRadius: 8, margin: 16 } }, E(Text, { style: { color: "#aaa", fontSize: 13 } }, "Volume 0-90: clean = loud & clear, raw = loud & distorted. Both up to 90.")),
             mkSwitch("Boost enabled", "enabled"),
             mkSwitch("Clear audio, no distortion", "clear"),
             mkSwitch("Raw mode (kill AGC / noise suppression)", "raw"),
@@ -264,6 +336,11 @@
         hookSetConnection();
       } catch (e) {
         logger.info("connection hook failed: " + e);
+      }
+      try {
+        patchMicSettings();
+      } catch (e) {
+        logger.info("mic settings patch failed: " + e);
       }
     },
     onUnload() {
