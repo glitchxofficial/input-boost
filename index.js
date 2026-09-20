@@ -5,7 +5,7 @@
   const React = metro.common?.React;
 
   const store = plugin?.storage ?? {};
-  if (store.gain == null) store.gain = 4;
+  if (store.gain == null) store.gain = 90;
   if (store.bitrate == null) store.bitrate = 512000;
   if (store.raw == null) store.raw = true;
   if (store.stereo == null) store.stereo = true;
@@ -36,6 +36,7 @@
   let patches = [];
   let fluxUnsub = null;
   const saveOrig = [];
+  let voiceRetry = null;
 
   const applyOptions = (options) => {
     if (!options) return options;
@@ -185,49 +186,79 @@
   };
 
   const patchMicSettings = () => {
-    try {
-      const Forms = ui.components?.Forms ?? (() => { try { return findByProps("FormRow", "FormSwitchRow", "FormSection"); } catch { return null; } })();
-      const RN = metro.common?.ReactNative;
-      if (!Forms || !React || !RN) return;
-      const E = React.createElement;
-      function BoostSection() {
-        const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
-        const slider = cfg().slider;
-        const SliderComp = Forms.Slider ?? Forms.FormSlider ?? (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN.Slider ?? null;
-        const mkSwitch = (title, key) => E(Forms.FormSwitchRow ?? Forms.FormRow, { label: title, value: !!store[key], onValueChange: (v) => { store[key] = !!v; forceUpdate(); } });
-        const sliderEl = SliderComp
-          ? E(RN.View, { style: { paddingHorizontal: 16, paddingVertical: 8 } }, E(RN.Text, { style: { color: "#fff", marginBottom: 8 } }, `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x)`), E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); forceUpdate(); } }))
-          : E(Forms.FormRow, { label: `Volume: ${slider}/90` });
-        const Section = Forms.FormSection || (({ children, title }) => E(RN.View, null, title ? E(RN.Text, { style: { fontWeight: "700", padding: 16 } }, title) : null, children));
-        return E(Section, { title: "Input Boost — Mic" }, mkSwitch("Boost enabled", "enabled"), mkSwitch("Clear audio", "clear"), mkSwitch("Raw mode", "raw"), E(Forms.FormRow ?? RN.View, { label: `Stereo + max bitrate: ${store.stereo ? "on" : "off"}` }), sliderEl);
-      }
-      const makeSection = () => E(BoostSection, null);
-      const candidates = [];
-      const tryFind = (fn) => { try { const r = fn(); if (r) candidates.push(r); } catch {} };
-      tryFind(() => metro.findByName("VoiceSettings", false));
-      tryFind(() => { try { return metro.findByDisplayName("VoiceSettings"); } catch { return null; } });
-      tryFind(() => findByProps("VoiceSettings"));
-      tryFind(() => findByProps("setNoiseSuppression", "setEchoCancellation"));
-      tryFind(() => findByProps("VOICE_SETTINGS_PANEL"));
-      for (const mod of candidates) {
-        const target = mod?.default ? mod : mod;
-        if (target && typeof target.default === "function") {
-          try {
-            const undo = patcher.after("default", target, (args, ret) => {
-              try {
-                if (!ret || !ret.props) return ret;
-                const ch = ret.props.children;
-                if (Array.isArray(ch)) ch.push(makeSection());
-                else if (ch) ret.props.children = [ch, makeSection()];
-              } catch (e) { logger.info("mic settings append failed " + e); }
-              return ret;
-            });
-            if (undo) { patches.push(undo); logger.info("patched mic settings (VoiceSettings)"); return; }
-          } catch (e) { logger.info("voice patch failed " + e); }
+    const tryPatch = () => {
+      try {
+        const Forms = ui.components?.Forms ?? (() => { try { return findByProps("FormRow", "FormSwitchRow", "FormSection"); } catch { return null; } })();
+        const RN = metro.common?.ReactNative;
+        if (!Forms || !React || !RN) return false;
+        const E = React.createElement;
+        function BoostSection() {
+          const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
+          const slider = cfg().slider;
+          const SliderComp = Forms.Slider ?? Forms.FormSlider ?? (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN.Slider ?? null;
+          const mkSwitch = (title, key) => E(Forms.FormSwitchRow ?? Forms.FormRow, { label: title, value: !!store[key], onValueChange: (v) => { store[key] = !!v; forceUpdate(); } });
+          const sliderEl = SliderComp
+            ? E(RN.View, { style: { paddingHorizontal: 16, paddingVertical: 8 } }, E(RN.Text, { style: { color: "#fff", marginBottom: 8 } }, `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x) — MAX at 90`), E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); forceUpdate(); } }))
+            : E(Forms.FormRow, { label: `Volume: ${slider}/90` });
+          const Section = Forms.FormSection || (({ children, title }) => E(RN.View, null, title ? E(RN.Text, { style: { fontWeight: "700", padding: 16 } }, title) : null, children));
+          return E(Section, { title: "Input Boost — Mic (in Voice Settings)" }, mkSwitch("Boost enabled", "enabled"), mkSwitch("Clear audio", "clear"), mkSwitch("Raw mode (distortion)", "raw"), mkSwitch("Stereo + max bitrate", "stereo"), sliderEl);
         }
-      }
-      logger.info("mic settings patch: VoiceSettings not found, use plugin settings");
-    } catch (e) { logger.info("patchMicSettings failed " + e); }
+        const makeSection = () => E(BoostSection, null);
+        const candidates = [];
+        const tryFind = (fn) => { try { const r = fn(); if (r) candidates.push(r); } catch {} };
+        tryFind(() => metro.findByName("VoiceSettings", false));
+        tryFind(() => { try { return metro.findByDisplayName("VoiceSettings"); } catch { return null; } });
+        tryFind(() => metro.findByName("VoiceAndVideoSettings", false));
+        tryFind(() => findByProps("VoiceSettings"));
+        tryFind(() => findByProps("setNoiseSuppression"));
+        tryFind(() => findByProps("setNoiseSuppression", "setEchoCancellation"));
+        tryFind(() => findByProps("VOICE_SETTINGS_PANEL"));
+        tryFind(() => findByProps("inputMode", "noiseSuppression"));
+        tryFind(() => findByProps("echoCancellation", "noiseCancellation"));
+        // scan modules if still none — brute force over metro.modules
+        if (candidates.length === 0) {
+          try {
+            const mods = vendetta.metro.modules ?? {};
+            for (const k in mods) {
+              const exp = mods[k]?.exports ?? mods[k];
+              if (!exp || typeof exp !== 'object') continue;
+              if (exp.default && typeof exp.default === 'function') {
+                const s = String(exp.default);
+                if (s.includes("noiseSuppression") || s.includes("VoiceSettings") || s.includes("inputMode")) candidates.push(exp);
+              }
+              if (exp.VoiceSettings) candidates.push(exp);
+              if (candidates.length >= 3) break;
+            }
+          } catch {}
+        }
+        for (const mod of candidates) {
+          const target = mod?.default ? mod : mod;
+          if (target && typeof target.default === "function") {
+            try {
+              const undo = patcher.after("default", target, (args, ret) => {
+                try {
+                  if (!ret || !ret.props) return ret;
+                  const ch = ret.props.children;
+                  if (Array.isArray(ch)) ch.push(makeSection());
+                  else if (ch) ret.props.children = [ch, makeSection()];
+                  else ret.props.children = makeSection();
+                } catch (e) { logger.info("mic settings append failed " + e); }
+                return ret;
+              });
+              if (undo) { patches.push(undo); logger.info("patched mic settings (VoiceSettings)"); return true; }
+            } catch (e) { logger.info("voice patch failed " + e); }
+          }
+        }
+        return false;
+      } catch (e) { logger.info("patchMicSettings failed " + e); return false; }
+    };
+    if (tryPatch()) return;
+    // retry for lazy-loaded settings (user hasn't opened Voice & Video yet)
+    let attempts = 0;
+    if (voiceRetry) clearInterval(voiceRetry);
+    voiceRetry = setInterval(() => {
+      if (tryPatch() || ++attempts > 15) { clearInterval(voiceRetry); voiceRetry = null; if (attempts > 15) logger.info("mic settings patch: VoiceSettings not found, use plugin settings"); }
+    }, 1000);
   };
 
   const FormOrRow = (...els) => els.some((e) => !!e);
@@ -350,6 +381,7 @@
         } catch (e) {}
       }
       patches = [];
+      if (voiceRetry) { try { clearInterval(voiceRetry); } catch {} voiceRetry = null; }
       if (fluxUnsub) {
         try {
           fluxUnsub();
