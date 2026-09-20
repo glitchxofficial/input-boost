@@ -178,64 +178,64 @@
   };
 
   const FormOrRow = (...els) => els.some((e) => !!e);
-  const TextEl = (ui2) => ui2.components?.FormText || ui2.components?.FormRow || "Text";
+  const TextEl = (ui2) => ui2.components?.Forms?.FormText || ui2.components?.FormRow || "Text";
 
   const buildSettings = () => {
     try {
-      const c = ui.components ?? {};
-      const { Form, FormRow, FormSection, FormText, FormSwitchRow, FormInput } = c;
       if (!React) return () => null;
       const E = React.createElement;
+      const Forms = ui.components?.Forms ?? (() => { try { return findByProps("FormRow", "FormSwitchRow", "FormSection"); } catch { return null; } })();
+      const RN = metro.common?.ReactNative;
 
-      if (!FormOrRow(Form, FormRow)) {
-        return () => E(TextEl(ui), { style: {} }, "Full Settings UI unavailable");
+      if (Forms && Forms.FormRow) {
+        const { FormSection, FormRow, FormSwitchRow, FormInput, FormText } = Forms;
+        const Section = FormSection || (({ children, title }) => E(RN?.View ?? "View", null, title ? E(RN?.Text ?? "Text", { style: { fontWeight: "700", padding: 16 } }, title) : null, children));
+        const T = FormText || FormRow;
+        const Row = FormRow;
+        const SwitchRow = FormSwitchRow || FormRow;
+        const InputComp = FormInput || RN?.TextInput || null;
+
+        return () => {
+          const rows = [];
+          rows.push(E(Section, { title: "Input Boost" }, E(T, { variant: "text-md/semibold", style: { paddingHorizontal: 16, paddingTop: 8 } }, "Hot mic: Clear = loud & clean (1.5x), Raw = overdriven & distorted (up to 10x).")));
+
+          const mkSwitch = (title, key) => E(SwitchRow, { label: title, value: !!store[key], onValueChange: (v) => { store[key] = !!v; } });
+          const mkGain = () => {
+            if (!InputComp || InputComp === RN?.TextInput) {
+              return E(Row, { label: "Gain (max 1.5 clear / 10 raw)", trailing: E(RN.TextInput, { value: String(store.gain), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center" }, onChangeText: (t) => { const n = Number(t); store.gain = Number.isFinite(n) ? n : store.gain; } }) });
+            }
+            return E(Row, { label: "Gain (max 1.5 clear / 10 raw)", trailing: E(InputComp, { value: String(store.gain), keyboardType: "number-pad", onChangeText: (t) => { const n = Number(t); store.gain = Number.isFinite(n) ? n : store.gain; } }) });
+          };
+
+          rows.push(mkSwitch("Boost enabled", "enabled"));
+          rows.push(mkSwitch("Clear audio, no distortion", "clear"));
+          rows.push(mkSwitch("Raw mode (kill AGC / noise suppression)", "raw"));
+          rows.push(mkSwitch("Stereo + max bitrate", "stereo"));
+          rows.push(mkGain());
+          return E(RN?.ScrollView ? RN.ScrollView : RN?.View ?? "View", { style: { flex: 1 } }, ...rows);
+        };
       }
 
-      const Section = FormSection || ((props) => E(props.children));
-      const T = FormText || FormRow;
-      const Row = FormRow;
-      const Switch = FormSwitchRow || FormRow;
+      if (RN && RN.View && RN.Text && RN.Switch) {
+        const { View, Text, Switch, TextInput, ScrollView } = RN;
+        const Container = ScrollView || View;
+        return () => {
+          const rowStyle = { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#333" };
+          const titleStyle = { fontSize: 16, color: "#fff", flex: 1, paddingRight: 12 };
+          const mkSwitch = (title, key) => E(View, { style: rowStyle }, E(Text, { style: titleStyle }, title), E(Switch, { value: !!store[key], onValueChange: (v) => { store[key] = !!v; } }));
+          const mkGain = () => E(View, { style: rowStyle }, E(Text, { style: titleStyle }, "Gain (1-10, 1.5 max in clear)"), E(TextInput, { value: String(store.gain), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center", color: "#fff" }, onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) store.gain = n; } }));
+          return E(Container, { style: { flex: 1, paddingTop: 8 } },
+            E(View, { style: { padding: 16, backgroundColor: "#222", borderRadius: 8, margin: 16 } }, E(Text, { style: { color: "#aaa", fontSize: 13 } }, "Hot mic: Clear = loud & clean (1.5x), Raw = overdriven & distorted (up to 10x). Listeners control their own volume.")),
+            mkSwitch("Boost enabled", "enabled"),
+            mkSwitch("Clear audio, no distortion", "clear"),
+            mkSwitch("Raw mode (kill AGC / noise suppression)", "raw"),
+            mkSwitch("Stereo + max bitrate", "stereo"),
+            mkGain()
+          );
+        };
+      }
 
-      return () => {
-        const rows = [];
-        rows.push(
-          E(
-            Section,
-            { title: "Input Boost" },
-            [E(T, { variant: "text-md/semibold", style: { paddingHorizontal: 16, paddingTop: 8 } },
-              "Yells at Discord's voice engine so your mic transmits hotter. Listeners still control their own volume.")]
-          )
-        );
-
-        const mkSwitch = (title, key) =>
-          E(Switch, {
-            label: title,
-            value: !!store[key],
-            onValueChange: (v) => {
-              store[key] = !!v;
-            },
-          });
-
-        const mkInput = (title, key, kind) =>
-          E(Row, {
-            label: title,
-            trailing: E(FormInput, {
-              value: String(store[key]),
-              keyboardType: "number-pad",
-              onChangeText: (t) => {
-                store[key] = kind === "num" ? Number(t) : t;
-              },
-            }),
-          });
-
-        rows.push(mkSwitch("Boost enabled", "enabled"));
-        rows.push(mkSwitch("Clear audio, no distortion", "clear"));
-        rows.push(mkSwitch("Raw mode (kill AGC / noise suppression)", "raw"));
-        rows.push(mkSwitch("Stereo + max bitrate", "stereo"));
-        rows.push(mkInput("Gain multiplier (max 1.5 in clear mode)", "gain", "num"));
-
-        return E(Form, null, rows);
-      };
+      return () => E(TextEl(ui), { style: {} }, "Settings UI unavailable");
     } catch (e) {
       logger.info("settings build failed: " + e);
       return () => null;
