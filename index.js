@@ -177,66 +177,70 @@
     }
   };
 
-  const buildSettings = () => {
-    const c = ui.components ?? {};
-    const { Form, FormRow, FormSection, FormText, FormSwitchRow, FormInput } = c;
-    if (!React) return () => null;
-    const E = React.createElement;
-
-    if (!FormOrRow(Form, FormRow)) {
-      return () =>
-        E(TextEl(ui), { style: {} }, "Full Settings UI unavailable");
-    }
-
-    const Section = FormSection || ((props) => E(props.children));
-    const T = FormText || FormRow;
-    const Row = FormRow;
-    const Switch = FormSwitchRow || FormRow;
-
-    return () => {
-      const rows = [];
-      rows.push(
-        E(
-          Section,
-          { title: "Input Boost" },
-          [E(T, { variant: "text-md/semibold", style: { paddingHorizontal: 16, paddingTop: 8 } },
-            "Yells at Discord's voice engine so your mic transmits hotter. Listeners still control their own volume.")]
-        )
-      );
-
-      const mkSwitch = (title, key) =>
-        E(Switch, {
-          label: title,
-          value: !!store[key],
-          onValueChange: (v) => {
-            store[key] = !!v;
-          },
-        });
-
-      const mkInput = (title, key, kind) =>
-        E(Row, {
-          label: title,
-          trailing: E(FormInput, {
-            value: String(store[key]),
-            keyboardType: "number-pad",
-            onChangeText: (t) => {
-              store[key] = kind === "num" ? Number(t) : t;
-            },
-          }),
-        });
-
-      rows.push(mkSwitch("Boost enabled", "enabled"));
-      rows.push(mkSwitch("Clear audio, no distortion", "clear"));
-      rows.push(mkSwitch("Raw mode (kill AGC / noise suppression)", "raw"));
-      rows.push(mkSwitch("Stereo + max bitrate", "stereo"));
-      rows.push(mkInput("Gain multiplier (max 1.5 in clear mode)", "gain", "num"));
-
-      return E(Form, null, rows);
-    };
-  };
-
   const FormOrRow = (...els) => els.some((e) => !!e);
   const TextEl = (ui2) => ui2.components?.FormText || ui2.components?.FormRow || "Text";
+
+  const buildSettings = () => {
+    try {
+      const c = ui.components ?? {};
+      const { Form, FormRow, FormSection, FormText, FormSwitchRow, FormInput } = c;
+      if (!React) return () => null;
+      const E = React.createElement;
+
+      if (!FormOrRow(Form, FormRow)) {
+        return () => E(TextEl(ui), { style: {} }, "Full Settings UI unavailable");
+      }
+
+      const Section = FormSection || ((props) => E(props.children));
+      const T = FormText || FormRow;
+      const Row = FormRow;
+      const Switch = FormSwitchRow || FormRow;
+
+      return () => {
+        const rows = [];
+        rows.push(
+          E(
+            Section,
+            { title: "Input Boost" },
+            [E(T, { variant: "text-md/semibold", style: { paddingHorizontal: 16, paddingTop: 8 } },
+              "Yells at Discord's voice engine so your mic transmits hotter. Listeners still control their own volume.")]
+          )
+        );
+
+        const mkSwitch = (title, key) =>
+          E(Switch, {
+            label: title,
+            value: !!store[key],
+            onValueChange: (v) => {
+              store[key] = !!v;
+            },
+          });
+
+        const mkInput = (title, key, kind) =>
+          E(Row, {
+            label: title,
+            trailing: E(FormInput, {
+              value: String(store[key]),
+              keyboardType: "number-pad",
+              onChangeText: (t) => {
+                store[key] = kind === "num" ? Number(t) : t;
+              },
+            }),
+          });
+
+        rows.push(mkSwitch("Boost enabled", "enabled"));
+        rows.push(mkSwitch("Clear audio, no distortion", "clear"));
+        rows.push(mkSwitch("Raw mode (kill AGC / noise suppression)", "raw"));
+        rows.push(mkSwitch("Stereo + max bitrate", "stereo"));
+        rows.push(mkInput("Gain multiplier (max 1.5 in clear mode)", "gain", "num"));
+
+        return E(Form, null, rows);
+      };
+    } catch (e) {
+      logger.info("settings build failed: " + e);
+      return () => null;
+    }
+  };
 
   return {
     onLoad() {
