@@ -101,7 +101,6 @@
   function syncFionaFromStore() {
     const s = cfg().slider;
     const clear = cfg().clear;
-    // base slider drives master gain + distortion for max effect, plus store overrides for fine controls
     FionaParams.masterGain = Number.isFinite(Number(store.masterGain)) ? Number(store.masterGain) : Math.round(s * 0.9);
     FionaParams.inputBoost = Number.isFinite(Number(store.inputBoost)) ? Number(store.inputBoost) : Math.round(s * 1.0);
     FionaParams.width = Number(store.width) ?? 0;
@@ -112,12 +111,11 @@
     FionaParams.eqTreble = Number(store.eqTreble) ?? 50;
     FionaParams.gateThreshold = Number(store.gateThreshold) ?? -40;
     FionaParams.formant = (Number(store.formant) ?? 100) / 100;
+    FionaParams.noiseReduction = 0;
     if (clear) {
       FionaParams.distortion = 0;
-      FionaParams.noiseReduction = 0;
     } else {
       FionaParams.distortion = Number.isFinite(Number(store.distortion)) ? Number(store.distortion) : s;
-      FionaParams.noiseReduction = Number(store.noiseReduction) ?? 0;
     }
     // voice changer preset overrides pitch/formant/distortion/reverb
     const vp = VOICE_PRESETS[store.voiceChanger];
@@ -260,6 +258,44 @@
     voiceRetry = setInterval(() => { if (tryPatch() || ++attempts > 15) { clearInterval(voiceRetry); voiceRetry = null; } }, 1000);
   };
 
+  const createFloating = () => {
+    try {
+      const RN = metro.common?.ReactNative;
+      if (!RN || !React) return false;
+      const E = React.createElement;
+      const { View, Text, TouchableOpacity } = RN;
+      let AppMod = null;
+      try { AppMod = metro.findByName("App", false); } catch {}
+      if (!AppMod) try { AppMod = metro.findByDisplayName("App"); } catch {}
+      if (!AppMod) try { AppMod = findByProps("App"); } catch {}
+      if (!AppMod || typeof AppMod.default !== "function") return false;
+      const Floating = () => {
+        const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
+        const slider = cfg().slider;
+        const [open, setOpen] = React.useState(false);
+        const SliderComp = (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN.Slider ?? null;
+        return E(View, { style: { position: "absolute", top: 50, right: 12, zIndex: 9999, alignItems: "flex-end" } },
+          E(TouchableOpacity, { onPress: () => setOpen(!open), activeOpacity: 0.85, style: { backgroundColor: "#0a0a0f", borderWidth: 1, borderColor: "rgba(100,40,180,0.35)", borderRadius: 100, paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center" } },
+            E(View, { style: { width: 10, height: 10, borderRadius: 5, backgroundColor: cfg().enabled ? "#7a3adf" : "rgba(100,40,180,0.3)", marginRight: 8 } }),
+            E(Text, { style: { color: "#fff", fontWeight: "700", fontSize: 12 } }, "Fiona"),
+            E(Text, { style: { color: "rgba(180,130,255,0.7)", fontSize: 10, marginLeft: 8 } }, slider + "/90")
+          ),
+          open ? E(View, { style: { marginTop: 8, width: 300, backgroundColor: "#0d0d1a", borderWidth: 1, borderColor: "rgba(100,40,180,0.2)", borderRadius: 16, padding: 12 } },
+            E(Text, { style: { color: "#c8aaff", fontWeight: "700", fontSize: 13, marginBottom: 10 } }, "Fiona — same colours"),
+            SliderComp ? E(View, { style: { marginBottom: 10 } }, E(Text, { style: { color: "#fff", marginBottom: 6, fontSize: 12 } }, `Volume: ${slider} / 90`), E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } })) : E(Text, { style: { color: "#fff" } }, `Volume ${slider}/90`),
+            E(TouchableOpacity, { onPress: () => { store.clear = !store.clear; syncFionaFromStore(); updateFionaNode(); forceUpdate(); }, style: { backgroundColor: store.clear ? "rgba(100,40,180,0.25)" : "#1a1a2a", borderWidth: 1, borderColor: store.clear ? "rgba(100,40,180,0.5)" : "rgba(100,40,180,0.15)", borderRadius: 8, padding: 10, alignItems: "center", marginTop: 6 } }, E(Text, { style: { color: store.clear ? "#c8aaff" : "#aaa", fontWeight: "600" } }, store.clear ? "Clear: ON" : "Clear: OFF")),
+            E(TouchableOpacity, { onPress: () => { store.enabled = !store.enabled; syncFionaFromStore(); updateFionaNode(); forceUpdate(); }, style: { backgroundColor: cfg().enabled ? "rgba(100,40,180,0.2)" : "#222", borderWidth: 1, borderColor: "rgba(100,40,180,0.2)", borderRadius: 8, padding: 10, alignItems: "center", marginTop: 6 } }, E(Text, { style: { color: cfg().enabled ? "#c8aaff" : "#888" } }, cfg().enabled ? "Boost: ON" : "Boost: OFF"))
+          ) : null
+        );
+      };
+      const undo = patcher.after("default", AppMod, (args, ret) => {
+        try { return E(View, { style: { flex: 1 } }, ret, E(Floating, null)); } catch { return ret; }
+      });
+      if (undo) { patches.push(undo); logger.info("floating Fiona injected"); return true; }
+    } catch (e) { logger.info("floating failed " + e); }
+    return false;
+  };
+
   const buildSettings = () => {
     try {
       if (!React) return () => null;
@@ -312,7 +348,7 @@
           );
         } else if (tab === "advanced") {
           pane = E(RN?.View ?? "View", null,
-            mkSlider("gateThreshold", "Gate Threshold", -60, 0, store.gateThreshold), mkSlider("noiseReduction", "Noise Reduction", 0, 100, store.noiseReduction)
+            mkSlider("gateThreshold", "Gate Threshold", -60, 0, store.gateThreshold)
           );
         } else if (tab === "presets") {
           pane = E(RN?.View ?? "View", null, ...Object.keys(PRESETS).map((n) => E(FormRow, { key: n, label: n, onPress: () => { const defs = { masterGain:0,inputBoost:0,width:0,pitch:50,reverb:0,eqBass:50,eqMid:50,eqTreble:50,gateThreshold:-40,formant:100,distortion:0,noiseReduction:0 }; Object.assign(store, defs, PRESETS[n]); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } })));
@@ -334,6 +370,7 @@
       try { hookTransport(); } catch (e) { logger.info("transport failed " + e); }
       try { hookFlux(); } catch (e) { logger.info("flux failed " + e); }
       try { patchMicSettings(); } catch (e) { logger.info("mic patch failed " + e); }
+      try { createFloating(); } catch (e) { logger.info("floating failed " + e); }
       syncFionaFromStore(); updateFionaNode();
     },
     onUnload() {
