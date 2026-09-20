@@ -1,0 +1,12 @@
+{
+  "name": "Input Boost",
+  "description": "Two modes for your mic: DISTORTED - aggressive overdriven boost (raw AGC/noise-suppression off, up to 10x gain, clips on purpose). CLEAR - high volume with no distortion, capped 1.5x gain and clean processing. Both force max-bitrate stereo.",
+  "authors": [
+    {
+      "name": "InputBoost",
+      "id": "0"
+    }
+  ],
+  "main": "index.js",
+  "hash": "5c9d21ebe704f8a63b1d09c2d47e15a6"
+}
