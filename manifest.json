@@ -1,6 +1,6 @@
 {
-  "name": "Input Boost",
-  "description": "Mic boost with slider 0-90: clean and distorted modes both up to 90 (9x). Clean = loud & clear, Distorted = loud & raw/clipped. Forces max-bitrate stereo.",
+  "name": "Fiona Audio",
+  "description": "Full Fiona Audio for Kettu/Revenge — Fiona worklet engine (gain, distortion, EQ, voice, reverb, presets) with 0-90 volume slider. High gain/distortion up to 90.",
 
   "authors": [
     {
@@ -9,5 +9,5 @@
     }
   ],
   "main": "index.js",
-  "hash": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5"
+  "hash": "a1f2e3d4c5b6a7f8e9d0c1b2a3f4"
 }

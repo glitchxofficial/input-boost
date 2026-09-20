@@ -5,19 +5,32 @@
   const React = metro.common?.React;
 
   const store = plugin?.storage ?? {};
+  // migration & defaults — slider 0-90 is primary volume, plus full Fiona params
   if (store.gain == null) store.gain = 90;
+  if (store.masterGain == null) store.masterGain = 0;
+  if (store.inputBoost == null) store.inputBoost = 0;
+  if (store.width == null) store.width = 0;
+  if (store.pitch == null) store.pitch = 50;
+  if (store.reverb == null) store.reverb = 0;
+  if (store.eqBass == null) store.eqBass = 50;
+  if (store.eqMid == null) store.eqMid = 50;
+  if (store.eqTreble == null) store.eqTreble = 50;
+  if (store.gateThreshold == null) store.gateThreshold = -40;
+  if (store.voiceChanger == null) store.voiceChanger = 'none';
+  if (store.formant == null) store.formant = 100;
+  if (store.distortion == null) store.distortion = 0;
+  if (store.noiseReduction == null) store.noiseReduction = 0;
   if (store.bitrate == null) store.bitrate = 512000;
   if (store.raw == null) store.raw = true;
   if (store.stereo == null) store.stereo = true;
   if (store.enabled == null) store.enabled = true;
   if (store.clear == null) store.clear = false;
 
-  const toSlider = (v) => {
-    let n = Number(v);
-    if (!Number.isFinite(n)) return 90;
-    if (n > 0 && n <= 10) n = n * 10;
-    return Math.max(0, Math.min(90, Math.round(n)));
-  };
+  const VOICE_PRESETS = { 'none': { pitch: 50, formant: 100, distortion: 0, reverb: 0 }, 'robot': { pitch: 30, formant: 80, distortion: 30, reverb: 10 }, 'chipmunk': { pitch: 75, formant: 150, distortion: 0, reverb: 5 }, 'alien': { pitch: 40, formant: 120, distortion: 20, reverb: 40 }, 'demon': { pitch: 25, formant: 70, distortion: 50, reverb: 30 }, 'giant': { pitch: 30, formant: 60, distortion: 10, reverb: 50 }, 'echo': { pitch: 50, formant: 100, distortion: 0, reverb: 70 }, 'helium': { pitch: 70, formant: 130, distortion: 0, reverb: 10 } };
+  const VOICE_PROFILES = { 'auto': {}, 'Male Deep': { eqBass: 65, eqMid: 45, eqTreble: 35, gateThreshold: -45 }, 'Male Medium': { eqBass: 55, eqMid: 50, eqTreble: 45, gateThreshold: -45 }, 'Female Low': { eqBass: 50, eqMid: 55, eqTreble: 55, gateThreshold: -40 }, 'Headset Mic': { eqBass: 45, eqMid: 65, eqTreble: 55, gateThreshold: -50 }, 'Studio Mic': { eqBass: 55, eqMid: 50, eqTreble: 50, gateThreshold: -60 } };
+  const PRESETS = { 'Default': {}, 'Bass Boost': { masterGain: 5, eqBass: 80, eqMid: 50, eqTreble: 40 }, 'Voice Clarity': { gateThreshold: -50, eqBass: 40, eqMid: 65, eqTreble: 70 }, 'Wide Stereo': { width: 70, reverb: 15 }, 'Radio Effect': { eqBass: 30, eqMid: 70, eqTreble: 30, width: 20, reverb: 30 }, 'Podcast': { gateThreshold: -55, eqBass: 45, eqMid: 60, eqTreble: 65 }, 'Streamer': { masterGain: 3, gateThreshold: -50, eqMid: 65, width: 40 }, 'ASMR': { gateThreshold: -70, eqBass: 40, eqMid: 50, eqTreble: 70, reverb: 10 } };
+
+  const toSlider = (v) => { let n = Number(v); if (!Number.isFinite(n)) return 90; if (n > 0 && n <= 10) n = n * 10; return Math.max(0, Math.min(90, Math.round(n))); };
   const cfg = () => {
     const slider = toSlider(store.gain);
     const gain = slider / 10;
@@ -25,7 +38,6 @@
     return { enabled: store.enabled !== false, clear, slider, gain, bitrate: store.bitrate === 384000 ? 384000 : 512000, raw: clear ? false : store.raw !== false, stereo: store.stereo !== false };
   };
 
-  // ===== Fiona Audio Engine (web) =====
   const WORKLET_CODE = `
         class FionaEngine extends AudioWorkletProcessor {
             static get parameterDescriptors() {
@@ -57,46 +69,23 @@
                 this.gateEnvelope = 0;
             }
             process(inputs, outputs, parameters) {
-                const input = inputs[0];
-                const output = outputs[0];
+                const input = inputs[0]; const output = outputs[0];
                 if (!input || input.length === 0) return true;
-                const gain = parameters.gain[0];
-                const boost = parameters.boost[0];
-                const width = parameters.width[0];
-                const pitch = parameters.pitch[0];
-                const reverbAmt = parameters.reverb[0];
-                const eqMid = parameters.eqMid[0];
-                const eqTreble = parameters.eqTreble[0];
-                const gateThresh = parameters.gateThreshold[0];
-                const distortion = parameters.distortion[0];
-                const noiseReduction = parameters.noiseReduction[0];
-                const ducking = parameters.ducking[0];
-                const inL = input[0];
-                const inR = input[1] || input[0];
-                const outL = output[0];
-                const outR = output[1] || output[0];
-                const len = inL.length;
+                const gain = parameters.gain[0]; const boost = parameters.boost[0]; const width = parameters.width[0]; const pitch = parameters.pitch[0];
+                const reverbAmt = parameters.reverb[0]; const eqMid = parameters.eqMid[0]; const eqTreble = parameters.eqTreble[0];
+                const gateThresh = parameters.gateThreshold[0]; const distortion = parameters.distortion[0]; const noiseReduction = parameters.noiseReduction[0]; const ducking = parameters.ducking[0];
+                const inL = input[0]; const inR = input[1] || input[0]; const outL = output[0]; const outR = output[1] || output[0]; const len = inL.length;
                 for (let i = 0; i < len; i++) {
-                    let L = inL[i] * boost;
-                    let R = inR[i] * boost;
+                    let L = inL[i] * boost; let R = inR[i] * boost;
                     if (noiseReduction > 0) { L *= (1 - noiseReduction * 0.5); R *= (1 - noiseReduction * 0.5); }
                     const level = Math.abs(L + R) * 0.5;
-                    if (level > gateThresh) this.gateEnvelope = Math.min(1, this.gateEnvelope + 0.01);
-                    else this.gateEnvelope = Math.max(0, this.gateEnvelope - 0.001);
+                    if (level > gateThresh) this.gateEnvelope = Math.min(1, this.gateEnvelope + 0.01); else this.gateEnvelope = Math.max(0, this.gateEnvelope - 0.001);
                     L *= this.gateEnvelope; R *= this.gateEnvelope;
-                    L = L * eqMid + (L - L * 0.98) * eqTreble;
-                    R = R * eqMid + (R - R * 0.98) * eqTreble;
+                    L = L * eqMid + (L - L * 0.98) * eqTreble; R = R * eqMid + (R - R * 0.98) * eqTreble;
                     if (distortion > 0) { L = Math.tanh(L * (1 + distortion * 3)); R = Math.tanh(R * (1 + distortion * 3)); }
-                    if (reverbAmt > 0.01) {
-                        L += this.reverbBuffer[this.reverbPos] * reverbAmt * 0.5;
-                        R += this.reverbBuffer[(this.reverbPos + 12000) % 24000] * reverbAmt * 0.5;
-                        this.reverbBuffer[this.reverbPos] = (L + R) * 0.3;
-                        this.reverbPos = (this.reverbPos + 1) % 24000;
-                    }
-                    this.bufL[this.writePos] = L; this.bufR[this.writePos] = R;
-                    this.writePos = (this.writePos + 1) % this.bufSize;
-                    L = this.bufL[Math.floor(this.readPos)]; R = this.bufR[Math.floor(this.readPos)];
-                    this.readPos = (this.readPos + pitch) % this.bufSize;
+                    if (reverbAmt > 0.01) { L += this.reverbBuffer[this.reverbPos] * reverbAmt * 0.5; R += this.reverbBuffer[(this.reverbPos + 12000) % 24000] * reverbAmt * 0.5; this.reverbBuffer[this.reverbPos] = (L + R) * 0.3; this.reverbPos = (this.reverbPos + 1) % 24000; }
+                    this.bufL[this.writePos] = L; this.bufR[this.writePos] = R; this.writePos = (this.writePos + 1) % this.bufSize;
+                    L = this.bufL[Math.floor(this.readPos)]; R = this.bufR[Math.floor(this.readPos)]; this.readPos = (this.readPos + pitch) % this.bufSize;
                     if (width > 0.01) { const mid = (L + R) * 0.5; const side = (L - R) * 0.5 * (1 + width); L = mid + side; R = mid - side; }
                     L *= gain * (1 - ducking * 0.7); R *= gain * (1 - ducking * 0.7);
                     outL[i] = Math.tanh(L); if (output[1]) outR[i] = Math.tanh(R);
@@ -108,38 +97,41 @@
         registerProcessor('fiona-engine', FionaEngine);
     `;
 
-  const FionaParams = {
-    masterGain: 0, inputBoost: 0, width: 0, pitch: 50, reverb: 0, eqBass: 50, eqMid: 50, eqTreble: 50, gateThreshold: -40, formant: 1.0, distortion: 0, noiseReduction: 0
-  };
+  const FionaParams = { masterGain: 0, inputBoost: 0, width: 0, pitch: 50, reverb: 0, eqBass: 50, eqMid: 50, eqTreble: 50, gateThreshold: -40, formant: 1.0, distortion: 0, noiseReduction: 0 };
   function syncFionaFromStore() {
     const s = cfg().slider;
     const clear = cfg().clear;
+    // base slider drives master gain + distortion for max effect, plus store overrides for fine controls
+    FionaParams.masterGain = Number.isFinite(Number(store.masterGain)) ? Number(store.masterGain) : Math.round(s * 0.9);
+    FionaParams.inputBoost = Number.isFinite(Number(store.inputBoost)) ? Number(store.inputBoost) : Math.round(s * 1.0);
+    FionaParams.width = Number(store.width) ?? 0;
+    FionaParams.pitch = Number(store.pitch) ?? 50;
+    FionaParams.reverb = Number(store.reverb) ?? 0;
+    FionaParams.eqBass = Number(store.eqBass) ?? 50;
+    FionaParams.eqMid = Number(store.eqMid) ?? 50;
+    FionaParams.eqTreble = Number(store.eqTreble) ?? 50;
+    FionaParams.gateThreshold = Number(store.gateThreshold) ?? -40;
+    FionaParams.formant = (Number(store.formant) ?? 100) / 100;
     if (clear) {
-      FionaParams.masterGain = Math.round(s * 0.6);
-      FionaParams.inputBoost = Math.round(s * 0.8);
       FionaParams.distortion = 0;
       FionaParams.noiseReduction = 0;
-      FionaParams.reverb = 0;
-      FionaParams.width = 0;
     } else {
-      FionaParams.masterGain = Math.round(s * 0.9);
-      FionaParams.inputBoost = Math.round(s * 1.0);
-      FionaParams.distortion = Math.round(s * 1.0);
-      FionaParams.reverb = Math.round(s * 0.2);
-      FionaParams.width = 10;
+      FionaParams.distortion = Number.isFinite(Number(store.distortion)) ? Number(store.distortion) : s;
+      FionaParams.noiseReduction = Number(store.noiseReduction) ?? 0;
+    }
+    // voice changer preset overrides pitch/formant/distortion/reverb
+    const vp = VOICE_PRESETS[store.voiceChanger];
+    if (vp && store.voiceChanger !== 'none') {
+      FionaParams.pitch = vp.pitch;
+      FionaParams.formant = vp.formant;
+      FionaParams.distortion = vp.distortion * 100;
+      FionaParams.reverb = vp.reverb;
     }
   }
   syncFionaFromStore();
-
   function dbToGain(db) { return Math.pow(10, db / 20); }
 
-  let nativeGUM = null;
-  let gumPatched = false;
-  let fionaNode = null;
-  let fionaAnalyser = null;
-  let fionaCtx = null;
-  let pendingResolvers = [];
-  let ctxReady = false;
+  let nativeGUM = null; let gumPatched = false; let fionaNode = null; let fionaCtx = null;
 
   const ensureContext = async () => {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -160,13 +152,12 @@
   const updateFionaNode = () => {
     if (!fionaNode || !fionaCtx) return;
     syncFionaFromStore();
-    const p = fionaNode.parameters;
-    const t = fionaCtx.currentTime;
+    const p = fionaNode.parameters; const t = fionaCtx.currentTime;
     const upd = {
       gain: dbToGain(FionaParams.masterGain),
       boost: dbToGain(FionaParams.inputBoost * 0.2),
       width: FionaParams.width / 100,
-      pitch: Math.pow(2, (50 - 50) / 25),
+      pitch: Math.pow(2, (FionaParams.pitch - 50) / 25),
       reverb: FionaParams.reverb / 100,
       eqBass: FionaParams.eqBass / 50,
       eqMid: FionaParams.eqMid / 50,
@@ -196,33 +187,27 @@
           if (!ctx) return stream;
           const source = ctx.createMediaStreamSource(stream);
           const dest = ctx.createMediaStreamDestination();
-          fionaAnalyser = ctx.createAnalyser(); fionaAnalyser.fftSize = 512;
           fionaNode = new AudioWorkletNode(ctx, 'fiona-engine');
-          source.connect(fionaNode); fionaNode.connect(dest); fionaNode.connect(fionaAnalyser);
+          source.connect(fionaNode); fionaNode.connect(dest);
           syncFionaFromStore(); updateFionaNode();
           logger.info("fiona injected stream, gain " + cfg().slider);
           return dest.stream;
         } catch (e) { logger.info("fiona inject failed " + e); return stream; }
       };
-      md._fionaPatched = true;
-      gumPatched = true;
+      md._fionaPatched = true; gumPatched = true;
       logger.info("patched getUserMedia with fiona");
       return true;
     } catch (e) { logger.info("gum patch failed " + e); return false; }
   };
 
-  let patches = [];
-  let fluxUnsub = null;
-  const saveOrig = [];
-  let voiceRetry = null;
+  let patches = []; let fluxUnsub = null; const saveOrig = []; let voiceRetry = null;
 
   const applyOptions = (options) => {
     if (!options) return options;
     if (options.encodingVoiceBitRate != null) options.encodingVoiceBitRate = cfg().bitrate;
     const enc = options.audioEncoder;
     if (enc) {
-      enc.channels = cfg().stereo ? 2 : 1;
-      enc.rate = 48000;
+      enc.channels = cfg().stereo ? 2 : 1; enc.rate = 48000;
       const params = { ...enc.params, usedtx: "0", useinbandfec: "0", maxaveragebitrate: String(cfg().bitrate) };
       if (cfg().stereo) params.stereo = "1";
       if (cfg().raw) { const off = ["nr","ns","agc","aec","cn","tx","highpass"]; for (const k of off) params[k] = "0"; }
@@ -231,123 +216,39 @@
     if (options.fec !== undefined) options.fec = false;
     return options;
   };
-
   const normalizeArgs = (a, b) => (Array.isArray(b) ? b : Array.isArray(a) ? a : [a]);
-
   const hookTransport = () => {
     const conn = findByProps("setTransportOptions");
-    if (conn) {
-      const undo = patcher.before("setTransportOptions", conn, (a, b) => {
-        if (!cfg().enabled) return;
-        const args = normalizeArgs(a, b);
-        if (args?.[0]) args[0] = applyOptions(args[0]);
-      });
-      if (undo) patches.push(undo);
-      logger.info("patched setTransportOptions");
-    }
-    const me = findByProps("getMediaEngine");
-    if (me?.getMediaEngine) {
-      try { const eng = me.getMediaEngine(); if (eng) { const orig = eng.setTransportOptions?.bind(eng); if (orig) { eng.setTransportOptions = (opts)=> orig(applyOptions(opts)); } } } catch {}
-    }
+    if (conn) { const undo = patcher.before("setTransportOptions", conn, (a, b) => { if (!cfg().enabled) return; const args = normalizeArgs(a, b); if (args?.[0]) args[0] = applyOptions(args[0]); }); if (undo) patches.push(undo); logger.info("patched setTransportOptions"); }
   };
-
-  const hookVolumeSetters = () => {
-    const setters = findByProps("setVolume");
-    if (setters) {
-      const names = Object.keys(setters).filter((k) => /volume|gain|input/i.test(k) && typeof setters[k] === "function");
-      for (const name of names) {
-        const undo = patcher.before(name, setters, (a, b) => { if (!cfg().enabled) return; const args = normalizeArgs(a,b); for(let i=0;i<args.length;i++) if(typeof args[i]==="number"&&args[i]>=0&&args[i]<=1.5) args[i]=Math.min(args[i]*cfg().gain,2); });
-        if (undo) patches.push(undo);
-      }
-      if (names.length) logger.info("hooked volume setters: " + names.join(", "));
-    }
-  };
-
-  const hookFlux = () => {
-    if (!FluxDispatcher?.subscribe) return;
-    fluxUnsub = FluxDispatcher.subscribe("MEDIA_ENGINE_SET_TRANSPORT_OPTIONS", (e) => {
-      if (!cfg().enabled) return;
-      if (e?.transportOptions) e.transportOptions = applyOptions(e.transportOptions);
-    });
-    logger.info("intercepted MEDIA_ENGINE_SET_TRANSPORT_OPTIONS");
-  };
-
-  const hookSetConnection = () => {
-    const m = findByProps("setConnection", "setAudioEncoder");
-    if (m) {
-      for (const name of ["setConnection", "setTransportOptions"]) {
-        if (typeof m[name] !== "function") continue;
-        const undo = patcher.before(name, m, (a, b) => {
-          if (!cfg().enabled) return;
-          const args = normalizeArgs(a, b);
-          if (args[0] && typeof args[0] === "object") args[0] = applyOptions(args[0]) ?? args[0];
-        });
-        if (undo) patches.push(undo);
-      }
-      logger.info("hooked setConnection");
-    }
-  };
+  const hookFlux = () => { if (!FluxDispatcher?.subscribe) return; fluxUnsub = FluxDispatcher.subscribe("MEDIA_ENGINE_SET_TRANSPORT_OPTIONS", (e) => { if (!cfg().enabled) return; if (e?.transportOptions) e.transportOptions = applyOptions(e.transportOptions); }); logger.info("intercepted flux"); };
 
   const patchMicSettings = () => {
     const tryPatch = () => {
       try {
         const Forms = ui.components?.Forms ?? (() => { try { return findByProps("FormRow", "FormSwitchRow", "FormSection"); } catch { return null; } })();
-        const RN = metro.common?.ReactNative;
-        if (!Forms || !React || !RN) return false;
+        const RN = metro.common?.ReactNative; if (!Forms || !React || !RN) return false;
         const E = React.createElement;
         function BoostSection() {
           const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
           const slider = cfg().slider;
           const SliderComp = Forms.Slider ?? Forms.FormSlider ?? (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN.Slider ?? null;
           const mkSwitch = (title, key) => E(Forms.FormSwitchRow ?? Forms.FormRow, { label: title, value: !!store[key], onValueChange: (v) => { store[key] = !!v; syncFionaFromStore(); updateFionaNode(); forceUpdate(); } });
-          const sliderEl = SliderComp
-            ? E(RN.View, { style: { paddingHorizontal: 16, paddingVertical: 8 } }, E(RN.Text, { style: { color: "#fff", marginBottom: 8, fontWeight: "700" } }, `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x) — ${cfg().clear ? "CLEAN" : "DISTORTED"} MAX at 90`), E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); }, onSlidingComplete: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } }))
-            : E(Forms.FormRow, { label: `Volume: ${slider}/90` });
+          const sliderEl = SliderComp ? E(RN.View, { style: { paddingHorizontal: 16, paddingVertical: 8 } }, E(RN.Text, { style: { color: "#fff", marginBottom: 8, fontWeight: "700" } }, `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x) — ${cfg().clear ? "CLEAN" : "DISTORTED"}`), E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } })) : E(Forms.FormRow, { label: `Volume: ${slider}/90` });
           const Section = Forms.FormSection || (({ children, title }) => E(RN.View, null, title ? E(RN.Text, { style: { fontWeight: "700", padding: 16 } }, title) : null, children));
-          return E(Section, { title: "Input Boost — Mic (in Voice Settings)" }, mkSwitch("Boost enabled", "enabled"), mkSwitch("Clear audio", "clear"), mkSwitch("Raw mode (distortion)", "raw"), mkSwitch("Stereo + max bitrate", "stereo"), sliderEl);
+          return E(Section, { title: "Fiona Audio — Mic" }, mkSwitch("Boost enabled", "enabled"), mkSwitch("Clear audio", "clear"), sliderEl, E(Forms.FormRow, { label: "Open full Fiona panel in Plugins → Fiona Audio" }));
         }
         const makeSection = () => E(BoostSection, null);
-        const candidates = [];
-        const tryFind = (fn) => { try { const r = fn(); if (r) candidates.push(r); } catch {} };
+        const candidates = []; const tryFind = (fn) => { try { const r = fn(); if (r) candidates.push(r); } catch {} };
         tryFind(() => metro.findByName("VoiceSettings", false));
         tryFind(() => { try { return metro.findByDisplayName("VoiceSettings"); } catch { return null; } });
-        tryFind(() => metro.findByName("VoiceAndVideoSettings", false));
-        tryFind(() => findByProps("VoiceSettings"));
-        tryFind(() => findByProps("setNoiseSuppression"));
-        tryFind(() => findByProps("setNoiseSuppression", "setEchoCancellation"));
-        tryFind(() => findByProps("VOICE_SETTINGS_PANEL"));
-        tryFind(() => findByProps("inputMode", "noiseSuppression"));
-        tryFind(() => findByProps("echoCancellation", "noiseCancellation"));
-        if (candidates.length === 0) {
-          try {
-            const mods = vendetta.metro.modules ?? {};
-            for (const k in mods) {
-              const exp = mods[k]?.exports ?? mods[k];
-              if (!exp || typeof exp !== 'object') continue;
-              if (exp.default && typeof exp.default === 'function') {
-                const s = String(exp.default);
-                if (s.includes("noiseSuppression") || s.includes("VoiceSettings") || s.includes("inputMode")) candidates.push(exp);
-              }
-              if (exp.VoiceSettings) candidates.push(exp);
-              if (candidates.length >= 3) break;
-            }
-          } catch {}
-        }
+        tryFind(() => findByProps("VoiceSettings")); tryFind(() => findByProps("setNoiseSuppression"));
         for (const mod of candidates) {
           const target = mod?.default ? mod : mod;
           if (target && typeof target.default === "function") {
             try {
-              const undo = patcher.after("default", target, (args, ret) => {
-                try {
-                  if (!ret || !ret.props) return ret;
-                  const ch = ret.props.children;
-                  if (Array.isArray(ch)) ch.unshift(makeSection());
-                  else if (ch) ret.props.children = [makeSection(), ch];
-                  else ret.props.children = makeSection();
-                } catch (e) { logger.info("mic settings append failed " + e); }
-                return ret;
-              });
-              if (undo) { patches.push(undo); logger.info("patched mic settings (VoiceSettings)"); return true; }
+              const undo = patcher.after("default", target, (args, ret) => { try { if (!ret || !ret.props) return ret; const ch = ret.props.children; if (Array.isArray(ch)) ch.unshift(makeSection()); else if (ch) ret.props.children = [makeSection(), ch]; else ret.props.children = makeSection(); } catch (e) { logger.info("append failed " + e); } return ret; });
+              if (undo) { patches.push(undo); logger.info("patched mic settings"); return true; }
             } catch (e) { logger.info("voice patch failed " + e); }
           }
         }
@@ -355,15 +256,9 @@
       } catch (e) { logger.info("patchMicSettings failed " + e); return false; }
     };
     if (tryPatch()) return;
-    let attempts = 0;
-    if (voiceRetry) clearInterval(voiceRetry);
-    voiceRetry = setInterval(() => {
-      if (tryPatch() || ++attempts > 15) { clearInterval(voiceRetry); voiceRetry = null; if (attempts > 15) logger.info("mic settings patch: VoiceSettings not found, use plugin settings"); }
-    }, 1000);
+    let attempts = 0; if (voiceRetry) clearInterval(voiceRetry);
+    voiceRetry = setInterval(() => { if (tryPatch() || ++attempts > 15) { clearInterval(voiceRetry); voiceRetry = null; } }, 1000);
   };
-
-  const FormOrRow = (...els) => els.some((e) => !!e);
-  const TextEl = (ui2) => ui2.components?.Forms?.FormText || ui2.components?.FormRow || "Text";
 
   const buildSettings = () => {
     try {
@@ -371,106 +266,84 @@
       const E = React.createElement;
       const Forms = ui.components?.Forms ?? (() => { try { return findByProps("FormRow", "FormSwitchRow", "FormSection"); } catch { return null; } })();
       const RN = metro.common?.ReactNative;
-
-      if (Forms && Forms.FormRow) {
-        const { FormSection, FormRow, FormSwitchRow, FormInput, FormText } = Forms;
-        const Section = FormSection || (({ children, title }) => E(RN?.View ?? "View", null, title ? E(RN?.Text ?? "Text", { style: { fontWeight: "700", padding: 16 } }, title) : null, children));
-        const T = FormText || FormRow;
-        const Row = FormRow;
-        const SwitchRow = FormSwitchRow || FormRow;
-        const InputComp = FormInput || RN?.TextInput || null;
-
-        return () => {
-          const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
-          const rows = [];
-          rows.push(E(Section, { title: "Input Boost — Fiona Engine" }, E(T, { variant: "text-md/semibold", style: { paddingHorizontal: 16, paddingTop: 8 } }, "Volume 0-90 — max 90 = 9.0x + distortion. Uses Fiona worklet + transport boost.")));
-
-          const mkSwitch = (title, key) => E(SwitchRow, { label: title, value: !!store[key], onValueChange: (v) => { store[key] = !!v; syncFionaFromStore(); updateFionaNode(); forceUpdate(); } });
-          const SliderComp = Forms.Slider ?? Forms.FormSlider ?? (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN?.Slider ?? null;
-          const mkGain = () => {
-            const slider = cfg().slider;
-            const label = `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x) — ${cfg().clear ? "CLEAN" : "DISTORTED"} HIGH GAIN`;
-            if (SliderComp) {
-              return E(RN?.View ?? "View", { style: { paddingHorizontal: 16, paddingVertical: 12 } },
-                E(RN?.Text ?? "Text", { style: { color: "#fff", marginBottom: 8, fontWeight: "700" } }, label),
-                E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); }, onSlidingComplete: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); }, style: { width: "100%" } })
-              );
-            }
-            if (!InputComp || InputComp === RN?.TextInput) {
-              return E(Row, { label, trailing: E(RN.TextInput, { value: String(slider), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center" }, onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) { store.gain = Math.max(0, Math.min(90, Math.round(n))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } } }) });
-            }
-            return E(Row, { label, trailing: E(InputComp, { value: String(slider), keyboardType: "number-pad", onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) { store.gain = Math.max(0, Math.min(90, Math.round(n))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } } }) });
+      if (!Forms || !Forms.FormRow) {
+        if (RN && RN.View) {
+          const { View, Text, Switch, ScrollView } = RN;
+          return () => {
+            const [, fu] = React.useReducer((x) => x + 1, 0);
+            const mkSw = (t, k) => E(View, { style: { flexDirection: "row", justifyContent: "space-between", padding: 12 } }, E(Text, { style: { color: "#fff" } }, t), E(Switch, { value: !!store[k], onValueChange: (v) => { store[k] = !!v; syncFionaFromStore(); updateFionaNode(); fu(); } }));
+            return E(ScrollView, null, E(Text, { style: { color: "#fff", padding: 16, fontWeight: "700" } }, `Fiona Audio — slider ${cfg().slider}/90`), mkSw("Boost", "enabled"), mkSw("Clear", "clear"));
           };
-
-          rows.push(mkSwitch("Boost enabled", "enabled"));
-          rows.push(mkSwitch("Clear audio, no distortion", "clear"));
-          rows.push(mkSwitch("Raw mode (kill AGC / noise suppression)", "raw"));
-          rows.push(mkSwitch("Stereo + max bitrate", "stereo"));
-          rows.push(mkGain());
-          rows.push(E(T, { variant: "text-sm/medium", style: { paddingHorizontal: 16, paddingTop: 8, color: "#aaa" } }, gumPatched ? "Fiona worklet: ACTIVE (getUserMedia hooked)" : "Fiona worklet: fallback transport boost (no getUserMedia)"));
-          return E(RN?.ScrollView ? RN.ScrollView : RN?.View ?? "View", { style: { flex: 1 } }, ...rows);
-        };
+        }
+        return () => null;
       }
+      const { FormSection, FormRow, FormSwitchRow, FormText } = Forms;
+      const Section = FormSection || (({ children, title }) => E(RN?.View ?? "View", null, title ? E(RN?.Text ?? "Text", { style: { fontWeight: "700", padding: 16 } }, title) : null, children));
+      const T = FormText || FormRow;
 
-      if (RN && RN.View && RN.Text && RN.Switch) {
-        const { View, Text, Switch, TextInput, ScrollView } = RN;
-        const Container = ScrollView || View;
-        return () => {
-          const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
-          const rowStyle = { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#333" };
-          const titleStyle = { fontSize: 16, color: "#fff", flex: 1, paddingRight: 12 };
-          const mkSwitch = (title, key) => E(View, { style: rowStyle }, E(Text, { style: titleStyle }, title), E(Switch, { value: !!store[key], onValueChange: (v) => { store[key] = !!v; syncFionaFromStore(); updateFionaNode(); forceUpdate(); } }));
-          const SliderComp = (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN.Slider ?? null;
-          const mkGain = () => {
-            const slider = cfg().slider;
-            if (SliderComp) {
-              return E(View, { style: { paddingHorizontal: 16, paddingVertical: 12 } },
-                E(Text, { style: { ...titleStyle, marginBottom: 8, fontWeight: "700" } }, `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x) — HIGH GAIN`),
-                E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); }, onSlidingComplete: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } })
-              );
-            }
-            return E(View, { style: rowStyle }, E(Text, { style: titleStyle }, `Volume: ${slider}/90`), E(TextInput, { value: String(slider), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center", color: "#fff" }, onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) { store.gain = Math.max(0, Math.min(90, Math.round(n))); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } } }));
-          };
-          return E(Container, { style: { flex: 1, paddingTop: 8 } },
-            E(View, { style: { padding: 16, backgroundColor: "#222", borderRadius: 8, margin: 16 } }, E(Text, { style: { color: "#aaa", fontSize: 13 } }, "Volume 0-90 slider — instantly changes Fiona gain. Both clean & distorted up to 90.")),
-            mkSwitch("Boost enabled", "enabled"),
-            mkSwitch("Clear audio, no distortion", "clear"),
-            mkSwitch("Raw mode (kill AGC / noise suppression)", "raw"),
-            mkSwitch("Stereo + max bitrate", "stereo"),
-            mkGain(),
-            E(View, { style: { padding: 16 } }, E(Text, { style: { color: gumPatched ? "#7af" : "#fa5", fontSize: 12 } }, gumPatched ? "Fiona worklet: ACTIVE" : "Fiona worklet: fallback"))
+      return () => {
+        const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
+        const [tab, setTab] = React.useState("main");
+        const SliderComp = Forms.Slider ?? Forms.FormSlider ?? (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN?.Slider ?? null;
+
+        const mkSlider = (id, label, min, max, val) => {
+          const comp = SliderComp ? E(SliderComp, { value: Number(val), minimumValue: min, maximumValue: max, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store[id] = Math.round(Number(nv)); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } }) : E(FormRow, { label: `${label}: ${val}` });
+          return E(RN?.View ?? "View", { style: { paddingHorizontal: 16, paddingVertical: 6 } }, E(RN?.Text ?? "Text", { style: { color: "#fff", marginBottom: 4 } }, `${label}: ${val}`), comp);
+        };
+        const mkSwitch = (label, key) => E(FormSwitchRow ?? FormRow, { label, value: !!store[key], onValueChange: (v) => { store[key] = !!v; syncFionaFromStore(); updateFionaNode(); forceUpdate(); } });
+
+        const TabBar = () => E(RN?.View ?? "View", { style: { flexDirection: "row", flexWrap: "wrap", padding: 8, gap: 6 } }, ["main","eq","voice","advanced","presets"].map((t) => E(FormRow, { key: t, label: t.toUpperCase(), trailing: E(RN?.View ?? "View", { style: { backgroundColor: tab === t ? "#7a3adf" : "#333", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 } }, E(RN?.Text ?? "Text", { style: { color: "#fff", fontSize: 11 }, onPress: () => setTab(t) }, t)) })));
+
+        let pane = null;
+        if (tab === "main") {
+          pane = E(RN?.View ?? "View", null,
+            mkSlider("gain", "VOLUME (0-90) HIGH GAIN", 0, 90, cfg().slider),
+            mkSwitch("Boost enabled", "enabled"), mkSwitch("Clear (no distortion)", "clear"), mkSwitch("Raw mode", "raw"), mkSwitch("Stereo + max bitrate", "stereo"),
+            mkSlider("masterGain", "Master Gain", 0, 100, store.masterGain), mkSlider("inputBoost", "Pre-Amp", 0, 100, store.inputBoost), mkSlider("width", "Stereo Width", 0, 100, store.width)
           );
-        };
-      }
+        } else if (tab === "eq") {
+          pane = E(RN?.View ?? "View", null, mkSlider("eqBass", "Bass", 0, 100, store.eqBass), mkSlider("eqMid", "Mid", 0, 100, store.eqMid), mkSlider("eqTreble", "Treble", 0, 100, store.eqTreble));
+        } else if (tab === "voice") {
+          const voiceOpts = Object.keys(VOICE_PRESETS);
+          pane = E(RN?.View ?? "View", null,
+            E(FormRow, { label: "Voice Type", trailing: E(RN?.Text ?? "Text", { style: { color: "#7af" } }, String(store.voiceChanger)) }),
+            ...voiceOpts.map((v) => E(FormRow, { key: v, label: v, trailing: E(RN?.View ?? "View", { style: { backgroundColor: store.voiceChanger === v ? "#7a3adf" : "#333", borderRadius: 6, padding: 6 } }, E(RN?.Text ?? "Text", { style: { color: "#fff" }, onPress: () => { store.voiceChanger = v; syncFionaFromStore(); updateFionaNode(); forceUpdate(); } }, v === store.voiceChanger ? "✓" : "○")) })),
+            mkSlider("pitch", "Pitch", 0, 100, store.pitch), mkSlider("formant", "Formant", 50, 200, store.formant), mkSlider("distortion", "Distortion", 0, 100, store.distortion), mkSlider("reverb", "Reverb", 0, 100, store.reverb)
+          );
+        } else if (tab === "advanced") {
+          pane = E(RN?.View ?? "View", null,
+            mkSlider("gateThreshold", "Gate Threshold", -60, 0, store.gateThreshold), mkSlider("noiseReduction", "Noise Reduction", 0, 100, store.noiseReduction)
+          );
+        } else if (tab === "presets") {
+          pane = E(RN?.View ?? "View", null, ...Object.keys(PRESETS).map((n) => E(FormRow, { key: n, label: n, onPress: () => { const defs = { masterGain:0,inputBoost:0,width:0,pitch:50,reverb:0,eqBass:50,eqMid:50,eqTreble:50,gateThreshold:-40,formant:100,distortion:0,noiseReduction:0 }; Object.assign(store, defs, PRESETS[n]); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } })));
+        }
 
-      return () => E(TextEl(ui), { style: {} }, "Settings UI unavailable");
-    } catch (e) {
-      logger.info("settings build failed: " + e);
-      return () => null;
-    }
+        return E(RN?.ScrollView ? RN.ScrollView : RN?.View ?? "View", { style: { flex: 1 } },
+          E(Section, { title: "Fiona Audio — Full" }, E(T, { style: { paddingHorizontal: 16, paddingTop: 8, color: "#aaa" } }, `Fiona worklet ${gumPatched ? "ACTIVE" : "fallback"} — slider ${cfg().slider}/90`)),
+          E(TabBar, null),
+          pane
+        );
+      };
+    } catch (e) { logger.info("settings build failed " + e); return () => null; }
   };
 
   return {
     onLoad() {
-      logger.info("Input Boost (Fiona) starting, slider " + cfg().slider);
+      logger.info("Fiona Audio plugin starting");
       patchGetUserMedia();
-      try { hookTransport(); } catch (e) { logger.info("transport hook failed: " + e); }
-      try { hookVolumeSetters(); } catch (e) { logger.info("volume hook failed: " + e); }
-      try { hookFlux(); } catch (e) { logger.info("flux hook failed: " + e); }
-      try { hookSetConnection(); } catch (e) { logger.info("connection hook failed: " + e); }
-      try { patchMicSettings(); } catch (e) { logger.info("mic settings patch failed: " + e); }
+      try { hookTransport(); } catch (e) { logger.info("transport failed " + e); }
+      try { hookFlux(); } catch (e) { logger.info("flux failed " + e); }
+      try { patchMicSettings(); } catch (e) { logger.info("mic patch failed " + e); }
       syncFionaFromStore(); updateFionaNode();
     },
     onUnload() {
-      for (const undo of patches) { try { undo(); } catch {} }
-      patches = [];
-      if (voiceRetry) { try { clearInterval(voiceRetry); } catch {} voiceRetry = null; }
-      if (fluxUnsub) { try { fluxUnsub(); } catch {} fluxUnsub = null; }
-      for (const restore of saveOrig) { try { restore(); } catch {} }
-      saveOrig.length = 0;
+      for (const u of patches) try { u(); } catch {}
+      patches = []; if (voiceRetry) { try { clearInterval(voiceRetry); } catch {} voiceRetry = null; }
+      if (fluxUnsub) try { fluxUnsub(); } catch {} fluxUnsub = null;
+      for (const r of saveOrig) try { r(); } catch {} saveOrig.length = 0;
       if (gumPatched && nativeGUM) { try { const nav = (typeof navigator !== 'undefined' ? navigator : null) ?? window?.navigator ?? global?.navigator ?? null; if (nav?.mediaDevices) nav.mediaDevices.getUserMedia = nativeGUM; } catch {} nativeGUM = null; gumPatched = false; }
-      if (fionaCtx) { try { fionaCtx.close(); } catch {} fionaCtx = null; fionaNode = null; }
-      logger.info("Input Boost stopped");
+      if (fionaCtx) try { fionaCtx.close(); } catch {} fionaCtx = null; fionaNode = null;
+      logger.info("Fiona stopped");
     },
     settings: buildSettings(),
   };
