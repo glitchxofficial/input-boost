@@ -20,6 +20,11 @@
   if (store.formant == null) store.formant = 100;
   if (store.distortion == null) store.distortion = 0;
   if (store.noiseReduction == null) store.noiseReduction = 0;
+  if (store.vadEnabled == null) store.vadEnabled = false;
+  if (store.vadThreshold == null) store.vadThreshold = -45;
+  if (store.duckingEnabled == null) store.duckingEnabled = false;
+  if (store.duckingReduction == null) store.duckingReduction = 10;
+  if (store.voiceProfile == null) store.voiceProfile = 'auto';
   if (store.bitrate == null) store.bitrate = 512000;
   if (store.raw == null) store.raw = true;
   if (store.stereo == null) store.stereo = true;
@@ -97,7 +102,7 @@
         registerProcessor('fiona-engine', FionaEngine);
     `;
 
-  const FionaParams = { masterGain: 0, inputBoost: 0, width: 0, pitch: 50, reverb: 0, eqBass: 50, eqMid: 50, eqTreble: 50, gateThreshold: -40, formant: 1.0, distortion: 0, noiseReduction: 0 };
+  const FionaParams = { masterGain: 0, inputBoost: 0, width: 0, pitch: 50, reverb: 0, eqBass: 50, eqMid: 50, eqTreble: 50, gateThreshold: -40, formant: 1.0, distortion: 0, noiseReduction: 0, vadEnabled: false, vadThreshold: -45, duckingEnabled: false, duckingReduction: 10, voiceProfile: 'auto' };
   function syncFionaFromStore() {
     const s = cfg().slider;
     const clear = cfg().clear;
@@ -111,7 +116,12 @@
     FionaParams.eqTreble = Number(store.eqTreble) ?? 50;
     FionaParams.gateThreshold = Number(store.gateThreshold) ?? -40;
     FionaParams.formant = (Number(store.formant) ?? 100) / 100;
-    FionaParams.noiseReduction = 0;
+    FionaParams.noiseReduction = Number(store.noiseReduction) ?? 0;
+    FionaParams.vadEnabled = !!store.vadEnabled;
+    FionaParams.vadThreshold = Number(store.vadThreshold) ?? -45;
+    FionaParams.duckingEnabled = !!store.duckingEnabled;
+    FionaParams.duckingReduction = Number(store.duckingReduction) ?? 10;
+    FionaParams.voiceProfile = store.voiceProfile ?? 'auto';
     if (clear) {
       FionaParams.distortion = 0;
     } else {
@@ -164,7 +174,7 @@
       formant: FionaParams.formant,
       distortion: FionaParams.distortion / 100,
       noiseReduction: FionaParams.noiseReduction / 100,
-      ducking: 0
+      ducking: FionaParams.duckingEnabled ? FionaParams.duckingReduction / 20 : 0
     };
     Object.entries(upd).forEach(([k, v]) => { try { if (p.has(k)) p.get(k).setTargetAtTime(v, t, 0.05); } catch {} });
   };
@@ -341,14 +351,20 @@
           pane = E(RN?.View ?? "View", null, mkSlider("eqBass", "Bass", 0, 100, store.eqBass), mkSlider("eqMid", "Mid", 0, 100, store.eqMid), mkSlider("eqTreble", "Treble", 0, 100, store.eqTreble));
         } else if (tab === "voice") {
           const voiceOpts = Object.keys(VOICE_PRESETS);
+          const profileOpts = Object.keys(VOICE_PROFILES);
           pane = E(RN?.View ?? "View", null,
             E(FormRow, { label: "Voice Type", trailing: E(RN?.Text ?? "Text", { style: { color: "#7af" } }, String(store.voiceChanger)) }),
             ...voiceOpts.map((v) => E(FormRow, { key: v, label: v, trailing: E(RN?.View ?? "View", { style: { backgroundColor: store.voiceChanger === v ? "#7a3adf" : "#333", borderRadius: 6, padding: 6 } }, E(RN?.Text ?? "Text", { style: { color: "#fff" }, onPress: () => { store.voiceChanger = v; syncFionaFromStore(); updateFionaNode(); forceUpdate(); } }, v === store.voiceChanger ? "✓" : "○")) })),
+            E(FormRow, { label: "Voice Profile", trailing: E(RN?.Text ?? "Text", { style: { color: "#7af" } }, String(store.voiceProfile)) }),
+            ...profileOpts.map((p) => E(FormRow, { key: p, label: p, trailing: E(RN?.View ?? "View", { style: { backgroundColor: store.voiceProfile === p ? "#7a3adf" : "#333", borderRadius: 6, padding: 6 } }, E(RN?.Text ?? "Text", { style: { color: "#fff" }, onPress: () => { store.voiceProfile = p; const prof = VOICE_PROFILES[p]; if (prof) { Object.keys(prof).forEach((k) => { store[k] = prof[k]; }); } syncFionaFromStore(); updateFionaNode(); forceUpdate(); } }, p === store.voiceProfile ? "✓" : "○")) })),
             mkSlider("pitch", "Pitch", 0, 100, store.pitch), mkSlider("formant", "Formant", 50, 200, store.formant), mkSlider("distortion", "Distortion", 0, 100, store.distortion), mkSlider("reverb", "Reverb", 0, 100, store.reverb)
           );
         } else if (tab === "advanced") {
           pane = E(RN?.View ?? "View", null,
-            mkSlider("gateThreshold", "Gate Threshold", -60, 0, store.gateThreshold)
+            mkSlider("gateThreshold", "Gate Threshold", -60, 0, store.gateThreshold),
+            mkSlider("noiseReduction", "Noise Reduction", 0, 100, store.noiseReduction),
+            mkSwitch("VAD", "vadEnabled"), mkSlider("vadThreshold", "VAD Threshold", -60, 0, store.vadThreshold),
+            mkSwitch("Audio Ducking", "duckingEnabled"), mkSlider("duckingReduction", "Duck Amount", 0, 30, store.duckingReduction)
           );
         } else if (tab === "presets") {
           pane = E(RN?.View ?? "View", null, ...Object.keys(PRESETS).map((n) => E(FormRow, { key: n, label: n, onPress: () => { const defs = { masterGain:0,inputBoost:0,width:0,pitch:50,reverb:0,eqBass:50,eqMid:50,eqTreble:50,gateThreshold:-40,formant:100,distortion:0,noiseReduction:0 }; Object.assign(store, defs, PRESETS[n]); syncFionaFromStore(); updateFionaNode(); forceUpdate(); } })));
@@ -365,13 +381,15 @@
 
   return {
     onLoad() {
-      logger.info("Fiona Audio plugin starting");
-      patchGetUserMedia();
-      try { hookTransport(); } catch (e) { logger.info("transport failed " + e); }
-      try { hookFlux(); } catch (e) { logger.info("flux failed " + e); }
-      try { patchMicSettings(); } catch (e) { logger.info("mic patch failed " + e); }
-      try { createFloating(); } catch (e) { logger.info("floating failed " + e); }
-      syncFionaFromStore(); updateFionaNode();
+      try { logger.info("Fiona Audio plugin starting"); } catch {}
+      try { patchGetUserMedia(); } catch (e) { try { logger.info("gum failed " + e); } catch {} }
+      try { hookTransport(); } catch (e) { try { logger.info("transport failed " + e); } catch {} }
+      try { hookFlux(); } catch (e) { try { logger.info("flux failed " + e); } catch {} }
+      try { patchMicSettings(); } catch (e) { try { logger.info("mic patch failed " + e); } catch {} }
+      try { createFloating(); } catch (e) { try { logger.info("floating failed " + e); } catch {} }
+      try { syncFionaFromStore(); } catch {}
+      try { updateFionaNode(); } catch {}
+      try { logger.info("Fiona Audio ready — slider " + cfg().slider); } catch {}
     },
     onUnload() {
       for (const u of patches) try { u(); } catch {}
