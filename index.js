@@ -235,16 +235,16 @@
           const target = mod?.default ? mod : mod;
           if (target && typeof target.default === "function") {
             try {
-              const undo = patcher.after("default", target, (args, ret) => {
-                try {
-                  if (!ret || !ret.props) return ret;
-                  const ch = ret.props.children;
-                  if (Array.isArray(ch)) ch.push(makeSection());
-                  else if (ch) ret.props.children = [ch, makeSection()];
-                  else ret.props.children = makeSection();
-                } catch (e) { logger.info("mic settings append failed " + e); }
-                return ret;
-              });
+            const undo = patcher.after("default", target, (args, ret) => {
+              try {
+                if (!ret || !ret.props) return ret;
+                const ch = ret.props.children;
+                if (Array.isArray(ch)) ch.unshift(makeSection());
+                else if (ch) ret.props.children = [makeSection(), ch];
+                else ret.props.children = makeSection();
+              } catch (e) { logger.info("mic settings append failed " + e); }
+              return ret;
+            });
               if (undo) { patches.push(undo); logger.info("patched mic settings (VoiceSettings)"); return true; }
             } catch (e) { logger.info("voice patch failed " + e); }
           }
@@ -280,24 +280,25 @@
         const InputComp = FormInput || RN?.TextInput || null;
 
         return () => {
+          const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
           const rows = [];
-          rows.push(E(Section, { title: "Input Boost" }, E(T, { variant: "text-md/semibold", style: { paddingHorizontal: 16, paddingTop: 8 } }, "Hot mic: Clear = loud & clean (1.5x), Raw = overdriven & distorted (up to 10x).")));
+          rows.push(E(Section, { title: "Input Boost" }, E(T, { variant: "text-md/semibold", style: { paddingHorizontal: 16, paddingTop: 8 } }, "Volume 0-90 — max 90 = 9.0x distortion / clean. Move slider to change volume instantly.")));
 
-          const mkSwitch = (title, key) => E(SwitchRow, { label: title, value: !!store[key], onValueChange: (v) => { store[key] = !!v; } });
+          const mkSwitch = (title, key) => E(SwitchRow, { label: title, value: !!store[key], onValueChange: (v) => { store[key] = !!v; forceUpdate(); } });
           const SliderComp = Forms.Slider ?? Forms.FormSlider ?? (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN?.Slider ?? null;
           const mkGain = () => {
             const slider = cfg().slider;
-            const label = `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x)`;
+            const label = `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x) — HIGH GAIN`;
             if (SliderComp) {
               return E(RN?.View ?? View ?? "View", { style: { paddingHorizontal: 16, paddingVertical: 12 } },
-                E(RN?.Text ?? Text ?? "Text", { style: { color: "#fff", marginBottom: 8 } }, label),
-                E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); }, style: { width: "100%" } })
+                E(RN?.Text ?? Text ?? "Text", { style: { color: "#fff", marginBottom: 8, fontWeight: "700" } }, label),
+                E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); forceUpdate(); }, onSlidingComplete: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); forceUpdate(); }, style: { width: "100%" } })
               );
             }
             if (!InputComp || InputComp === RN?.TextInput) {
-              return E(Row, { label, trailing: E(RN.TextInput, { value: String(slider), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center" }, onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) store.gain = Math.max(0, Math.min(90, Math.round(n))); } }) });
+              return E(Row, { label, trailing: E(RN.TextInput, { value: String(slider), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center" }, onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) { store.gain = Math.max(0, Math.min(90, Math.round(n))); forceUpdate(); } } }) });
             }
-            return E(Row, { label, trailing: E(InputComp, { value: String(slider), keyboardType: "number-pad", onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) store.gain = Math.max(0, Math.min(90, Math.round(n))); } }) });
+            return E(Row, { label, trailing: E(InputComp, { value: String(slider), keyboardType: "number-pad", onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) { store.gain = Math.max(0, Math.min(90, Math.round(n))); forceUpdate(); } } }) });
           };
 
           rows.push(mkSwitch("Boost enabled", "enabled"));
@@ -313,22 +314,23 @@
         const { View, Text, Switch, TextInput, ScrollView } = RN;
         const Container = ScrollView || View;
         return () => {
+          const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
           const rowStyle = { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#333" };
           const titleStyle = { fontSize: 16, color: "#fff", flex: 1, paddingRight: 12 };
-          const mkSwitch = (title, key) => E(View, { style: rowStyle }, E(Text, { style: titleStyle }, title), E(Switch, { value: !!store[key], onValueChange: (v) => { store[key] = !!v; } }));
+          const mkSwitch = (title, key) => E(View, { style: rowStyle }, E(Text, { style: titleStyle }, title), E(Switch, { value: !!store[key], onValueChange: (v) => { store[key] = !!v; forceUpdate(); } }));
           const SliderComp = (() => { try { const m = findByProps("Slider"); return m?.Slider ?? m ?? null; } catch { return null; } })() ?? RN.Slider ?? null;
           const mkGain = () => {
             const slider = cfg().slider;
             if (SliderComp) {
               return E(View, { style: { paddingHorizontal: 16, paddingVertical: 12 } },
-                E(Text, { style: { ...titleStyle, marginBottom: 8 } }, `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x)`),
-                E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); } })
+                E(Text, { style: { ...titleStyle, marginBottom: 8, fontWeight: "700" } }, `Volume: ${slider} / 90 (${(slider / 10).toFixed(1)}x) — HIGH GAIN`),
+                E(SliderComp, { value: slider, minimumValue: 0, maximumValue: 90, step: 1, onValueChange: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); forceUpdate(); }, onSlidingComplete: (v) => { const nv = Array.isArray(v) ? v[0] : v; store.gain = Math.max(0, Math.min(90, Math.round(Number(nv)))); forceUpdate(); } })
               );
             }
-            return E(View, { style: rowStyle }, E(Text, { style: titleStyle }, `Volume: ${slider}/90`), E(TextInput, { value: String(slider), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center", color: "#fff" }, onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) store.gain = Math.max(0, Math.min(90, Math.round(n))); } }));
+            return E(View, { style: rowStyle }, E(Text, { style: titleStyle }, `Volume: ${slider}/90`), E(TextInput, { value: String(slider), keyboardType: "number-pad", style: { borderWidth: 1, borderColor: "#555", borderRadius: 6, padding: 6, minWidth: 60, textAlign: "center", color: "#fff" }, onChangeText: (t) => { const n = Number(t); if (Number.isFinite(n)) { store.gain = Math.max(0, Math.min(90, Math.round(n))); forceUpdate(); } } }));
           };
           return E(Container, { style: { flex: 1, paddingTop: 8 } },
-            E(View, { style: { padding: 16, backgroundColor: "#222", borderRadius: 8, margin: 16 } }, E(Text, { style: { color: "#aaa", fontSize: 13 } }, "Volume 0-90: clean = loud & clear, raw = loud & distorted. Both up to 90.")),
+            E(View, { style: { padding: 16, backgroundColor: "#222", borderRadius: 8, margin: 16 } }, E(Text, { style: { color: "#aaa", fontSize: 13 } }, "Volume 0-90 slider — instantly changes gain. Both clean & distorted up to 90.")),
             mkSwitch("Boost enabled", "enabled"),
             mkSwitch("Clear audio, no distortion", "clear"),
             mkSwitch("Raw mode (kill AGC / noise suppression)", "raw"),
