@@ -20,14 +20,9 @@
   };
 
   const socketMod = find("getSocket", ["getSocket", "getGatewayConnection"]);
-  const voiceManager = find("toggleSelfMute", ["toggleSelfMute", "toggleSelfDeafen"]);
 
   const getSocket = () => {
     try { return socketMod?.getSocket?.(); } catch { return null; }
-  };
-
-  const getVC = () => {
-    try { return common?.channels?.getVoiceChannelId?.() ?? null; } catch { return null; }
   };
 
   let lastVoiceState = null;
@@ -38,23 +33,80 @@
     }
   };
 
+  const forceState = (state) => {
+    if (!state || !st.enabled) return;
+    if (st.forceMute) {
+      state.self_mute = true;
+      state.selfMute = true;
+    }
+    if (st.forceDeafen) {
+      state.self_deaf = true;
+      state.selfDeaf = true;
+    }
+  };
+
+  // Seed lastVoiceState from VoiceStateStore so toggling works even before any update.
+  const seedState = () => {
+    try {
+      const me = find("getCurrentUser", ["getCurrentUser"])?.getCurrentUser?.();
+      const vss = find("getVoiceStates", ["getVoiceStates"]);
+      let states = null;
+      if (vss) {
+        try { states = vss.getVoiceStates?.(); } catch {}
+        if (states && typeof states.keys === "function") {
+          try { states = [...states.values()]; } catch {}
+        }
+      }
+      if (me && Array.isArray(states)) {
+        const mine = states.find((s) => s?.userId === me.id || s?.user_id === me.id);
+        if (mine) {
+          lastVoiceState = {
+            channelId: mine.channelId ?? mine.channel_id ?? null,
+            guildId: mine.guildId ?? mine.guild_id ?? null,
+            selfMute: !!mine.selfMute,
+            selfDeaf: !!mine.selfDeaf,
+            selfVideo: !!mine.selfVideo,
+          };
+          return;
+        }
+      }
+      const vc = find("getVoiceChannelId", ["getVoiceChannelId"]);
+      const channelId = vc?.getVoiceChannelId?.();
+      if (channelId) {
+        let guildId = null;
+        try {
+          const ch = common?.channels?.getChannel?.(channelId);
+          if (ch?.guild_id) guildId = ch.guild_id;
+        } catch {}
+        lastVoiceState = { channelId, guildId, selfMute: false, selfDeaf: false, selfVideo: false };
+      }
+    } catch {}
+  };
+
+  // Re-send Discord's own last real state through its own (patched) method.
+  // This keeps guild_id/channel_id/payload shape always correct, so the
+  // server never misreads it as a channel change / leave.
+  const resendVoiceState = () => {
+    const sock = getSocket();
+    if (!sock) return false;
+    if (!lastVoiceState || lastVoiceState.channelId == null) return false;
+    if (typeof sock.voiceStateUpdate !== "function") return false;
+    try {
+      sock.voiceStateUpdate({ ...lastVoiceState });
+      return true;
+    } catch { return false; }
+  };
+
+  const applyNow = () => {
+    seedState();
+    const ok = resendVoiceState();
+    if (!ok) ui?.toasts?.showToast?.("Not in a voice channel.");
+    return ok;
+  };
+
   const unpatchers = [];
   const patchedSockets = new Set();
   let timer = null;
-
-  const forceState = (state) => {
-    if (!state) return;
-    if (st.enabled) {
-      if (st.forceMute) {
-        state.self_mute = true;
-        state.selfMute = true;
-      }
-      if (st.forceDeafen) {
-        state.self_deaf = true;
-        state.selfDeaf = true;
-      }
-    }
-  };
 
   const patchSocket = () => {
     const sock = getSocket();
@@ -66,26 +118,12 @@
           try {
             const state = args && args[0];
             remember(state);
-            if (st.enabled) forceState(state);
+            forceState(state);
           } catch {}
         });
         unpatchers.push(up);
       }
-    } catch (e) { L?.log?.("voiceStateUpdate patch failed", e); }
-    try {
-      if (typeof sock.send === "function") {
-        const up2 = patcher.before("FakeDeafen-send", sock, (args) => {
-          try {
-            if (!Array.isArray(args) || args[0] !== 4) return;
-            const data = args[1];
-            if (!data) return;
-            remember(data);
-            if (st.enabled) forceState(data);
-          } catch {}
-        });
-        unpatchers.push(up2);
-      }
-    } catch (e) { L?.log?.("send patch failed", e); }
+    } catch (e) { L?.log?.("patch failed", e); }
   };
 
   const ensureTicker = () => {
@@ -93,59 +131,9 @@
     timer = setInterval(() => { try { patchSocket(); } catch {} }, 5000);
   };
 
-  // Double-toggle the real mute so Discord itself emits a voice state update,
-  // while the patch fakes the outbound values. Local state nets out unchanged.
-  const syncVoice = () => {
-    const vc = getVC();
-    if (!vc) return false;
-    if (!voiceManager) return false;
-    const toggle = typeof voiceManager.toggleSelfMute === "function"
-      ? voiceManager.toggleSelfMute.bind(voiceManager)
-      : typeof voiceManager.toggleSelfDeafen === "function"
-        ? voiceManager.toggleSelfDeafen.bind(voiceManager)
-        : null;
-    if (!toggle) return false;
-    try {
-      toggle();
-      setTimeout(() => { try { toggle(); } catch {} }, 80);
-      return true;
-    } catch { return false; }
-  };
-
-  // Re-send Discord's own last real state through its own path (unpatched / real values).
-  const resendReal = () => {
-    const sock = getSocket();
-    if (!sock || !lastVoiceState || lastVoiceState.channelId == null) return false;
-    try {
-      if (typeof sock.voiceStateUpdate === "function") {
-        sock.voiceStateUpdate({ ...lastVoiceState });
-      } else if (typeof sock.send === "function") {
-        sock.send(4, {
-          guild_id: lastVoiceState.guildId ?? lastVoiceState.guild_id ?? null,
-          channel_id: lastVoiceState.channelId,
-          self_mute: !!lastVoiceState.selfMute,
-          self_deaf: !!lastVoiceState.selfDeaf,
-          self_video: false,
-          flags: 0,
-        });
-      } else {
-        return false;
-      }
-      return true;
-    } catch { return false; }
-  };
-
-  const applyNow = () => {
-    if (!getVC()) {
-      ui?.toasts?.showToast?.("Not in a voice channel.");
-      return false;
-    }
-    return syncVoice();
-  };
-
   const toggle = () => {
     st.enabled = !st.enabled;
-    const ok = st.enabled ? applyNow() : resendReal();
+    const ok = st.enabled ? applyNow() : resendVoiceState();
     ui?.toasts?.showToast?.(`${st.enabled ? "Enabled" : "Disabled"} fake deafen${ok ? "" : " (no voice connection)"}.`);
     return st.enabled;
   };
@@ -175,7 +163,7 @@
         row("Fake Deafen",
             "Force self_deaf in outbound voice state updates.",
             p.enabled,
-            (v) => { p.enabled = v; if (v) applyNow(); else resendReal(); },
+            (v) => { p.enabled = v; if (v) applyNow(); else resendVoiceState(); },
             true),
         row("Also force mute",
             "Force self_mute alongside deafen.",
@@ -203,7 +191,7 @@
       try { if (timer) { clearInterval(timer); timer = null; } } catch {}
       try { unpatchers.forEach((u) => { try { u(); } catch {} }); } catch {}
       st.enabled = false;
-      try { resendReal(); } catch {}
+      try { resendVoiceState(); } catch {}
       try { commands?.unregisterCommand?.("fd"); } catch {}
     },
   };
