@@ -426,7 +426,7 @@
     st.enabled = !st.enabled;
     const ok = st.enabled ? applyNow() : resendNow();
     log("toggle enabled=", st.enabled, "ok=", ok);
-    ui?.toasts?.showToast?.(`${st.enabled ? "Enabled" : "Disabled"} BY Fiona${ok ? "" : " (no voice connection)"}.`);
+    ui?.toasts?.showToast?.(`${st.enabled ? "Enabled" : "Disabled"} Fake Deafen${ok ? "" : " (no voice connection)"}.`);
     fabEmit();
     return st.enabled;
   };
@@ -436,11 +436,11 @@
   const command = {
     name: "fd",
     displayName: "fake deafen",
-    description: "Toggle BY Fiona (appear deafened/muted while still hearing).",
+    description: "Toggle Fake Deafen (appear deafened/muted while still hearing).",
     options: [],
     execute: () => {
       const on = toggle();
-      return { content: `BY Fiona ${on ? "enabled" : "disabled"}.` };
+      return { content: `Fake Deafen ${on ? "enabled" : "disabled"}.` };
     },
   };
 
@@ -467,7 +467,7 @@
           )
         : null;
       return React.createElement(React.Fragment, null,
-        row("BY Fiona",
+        row("Fake Deafen",
             "Force self_deaf in outbound voice state updates.",
             p.enabled,
             (v) => { p.enabled = v; if (v) applyNow(); else resendNow(); fabEmit(); },
