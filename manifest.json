@@ -1,0 +1,12 @@
+{
+  "name": "Fake Deafen",
+  "description": "Fake deafen/mute yourself in voice channels. Others see you as deafened/muted while you can still hear and speak. Works on Kettu & Revenge.",
+  "authors": [
+    {
+      "name": "You",
+      "id": "0"
+    }
+  ],
+  "main": "index.js",
+  "hash": "44345981abfae12561b040fba8dd336f1789d5a57150142cd20813027a0b606c"
+}
