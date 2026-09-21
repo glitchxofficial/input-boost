@@ -4,110 +4,148 @@
   const st = plugin?.storage ?? {};
   st.enabled ??= true;
   st.forceMute ??= true;
+  st.forceDeafen ??= true;
 
   const common = metro?.common;
   const React = common?.React;
-  const channels = common?.channels;
 
-  const getVC = () => {
-    try {
-      const id = channels?.getVoiceChannelId?.();
-      if (typeof id === "string") return id;
-    } catch {}
-    return null;
-  };
-
-  const findSocketModule = () => {
-    for (const p of ["getSocket"]) {
+  const find = (props, attempts) => {
+    for (const p of attempts ?? [props]) {
       try {
-        const mod = metro?.findByProps?.(p);
-        if (mod?.getSocket) return mod;
+        const m = metro?.findByProps?.(p);
+        if (m) return m;
       } catch {}
     }
-    try {
-      const alt = metro?.findByProps?.("getGateway");
-      if (alt?.getGateway?.()?.socket) return alt;
-    } catch {}
     return null;
   };
-  const socketMod = findSocketModule();
+
+  const socketMod = find("getSocket", ["getSocket", "getGatewayConnection"]);
+  const voiceManager = find("toggleSelfMute", ["toggleSelfMute", "toggleSelfDeafen"]);
 
   const getSocket = () => {
     try { return socketMod?.getSocket?.(); } catch { return null; }
   };
 
-  const buildPayload = (channelId) => {
-    let guildId = null;
-    try {
-      const ch = channels?.getChannel?.(channelId);
-      if (ch?.guild_id) guildId = ch.guild_id;
-    } catch {}
-    return {
-      guild_id: guildId,
-      channel_id: channelId,
-      self_mute: !!st.forceMute,
-      self_deaf: true,
-      self_video: false,
-      flags: 0,
-    };
+  const getVC = () => {
+    try { return common?.channels?.getVoiceChannelId?.() ?? null; } catch { return null; }
   };
 
-  const sendNow = (enabled) => {
-    const sock = getSocket();
-    if (!sock || typeof sock.send !== "function") return false;
-    const channelId = getVC();
-    if (!channelId) return false;
-    const data = buildPayload(channelId);
-    if (enabled === false) {
-      data.self_mute = false;
-      data.self_deaf = false;
-    } else if (st.enabled !== true) {
-      data.self_deaf = false;
-      if (!st.forceMute) data.self_mute = false;
+  let lastVoiceState = null;
+
+  const remember = (state) => {
+    if (state && typeof state === "object") {
+      try { lastVoiceState = { ...state }; } catch {}
     }
-    try { sock.send(4, data); return true; } catch { return false; }
-  };
-
-  const applyNow = () => {
-    const ok = sendNow(st.enabled);
-    ui?.toasts?.showToast?.(ok ? "Fake state sent." : "Not in a voice channel.");
-    return ok;
   };
 
   const unpatchers = [];
   const patchedSockets = new Set();
   let timer = null;
 
+  const forceState = (state) => {
+    if (!state) return;
+    if (st.enabled) {
+      if (st.forceMute) {
+        state.self_mute = true;
+        state.selfMute = true;
+      }
+      if (st.forceDeafen) {
+        state.self_deaf = true;
+        state.selfDeaf = true;
+      }
+    }
+  };
+
   const patchSocket = () => {
     const sock = getSocket();
-    if (!sock || typeof sock.send !== "function" || patchedSockets.has(sock)) return;
+    if (!sock || patchedSockets.has(sock)) return;
     patchedSockets.add(sock);
     try {
-      const unpatch = patcher.before("FakeDeafen-send", sock, (args) => {
-        try {
-          if (!Array.isArray(args) || args[0] !== 4) return;
-          const data = args[1];
-          if (!data) return;
-          if (st.enabled) {
-            data.self_mute = data.self_mute === void 0 ? !!st.forceMute : !!st.forceMute;
-            data.self_deaf = true;
-          }
-        } catch {}
-      });
-      unpatchers.push(unpatch);
-    } catch (e) { L?.log?.("patch failed", e); }
+      if (typeof sock.voiceStateUpdate === "function") {
+        const up = patcher.before("FakeDeafen-vsu", sock, (args) => {
+          try {
+            const state = args && args[0];
+            remember(state);
+            if (st.enabled) forceState(state);
+          } catch {}
+        });
+        unpatchers.push(up);
+      }
+    } catch (e) { L?.log?.("voiceStateUpdate patch failed", e); }
+    try {
+      if (typeof sock.send === "function") {
+        const up2 = patcher.before("FakeDeafen-send", sock, (args) => {
+          try {
+            if (!Array.isArray(args) || args[0] !== 4) return;
+            const data = args[1];
+            if (!data) return;
+            remember(data);
+            if (st.enabled) forceState(data);
+          } catch {}
+        });
+        unpatchers.push(up2);
+      }
+    } catch (e) { L?.log?.("send patch failed", e); }
   };
 
   const ensureTicker = () => {
     if (timer) return;
-    timer = setInterval(() => {
-      try { patchSocket(); } catch {}
-    }, 5000);
+    timer = setInterval(() => { try { patchSocket(); } catch {} }, 5000);
+  };
+
+  // Double-toggle the real mute so Discord itself emits a voice state update,
+  // while the patch fakes the outbound values. Local state nets out unchanged.
+  const syncVoice = () => {
+    const vc = getVC();
+    if (!vc) return false;
+    if (!voiceManager) return false;
+    const toggle = typeof voiceManager.toggleSelfMute === "function"
+      ? voiceManager.toggleSelfMute.bind(voiceManager)
+      : typeof voiceManager.toggleSelfDeafen === "function"
+        ? voiceManager.toggleSelfDeafen.bind(voiceManager)
+        : null;
+    if (!toggle) return false;
+    try {
+      toggle();
+      setTimeout(() => { try { toggle(); } catch {} }, 80);
+      return true;
+    } catch { return false; }
+  };
+
+  // Re-send Discord's own last real state through its own path (unpatched / real values).
+  const resendReal = () => {
+    const sock = getSocket();
+    if (!sock || !lastVoiceState || lastVoiceState.channelId == null) return false;
+    try {
+      if (typeof sock.voiceStateUpdate === "function") {
+        sock.voiceStateUpdate({ ...lastVoiceState });
+      } else if (typeof sock.send === "function") {
+        sock.send(4, {
+          guild_id: lastVoiceState.guildId ?? lastVoiceState.guild_id ?? null,
+          channel_id: lastVoiceState.channelId,
+          self_mute: !!lastVoiceState.selfMute,
+          self_deaf: !!lastVoiceState.selfDeaf,
+          self_video: false,
+          flags: 0,
+        });
+      } else {
+        return false;
+      }
+      return true;
+    } catch { return false; }
+  };
+
+  const applyNow = () => {
+    if (!getVC()) {
+      ui?.toasts?.showToast?.("Not in a voice channel.");
+      return false;
+    }
+    return syncVoice();
   };
 
   const toggle = () => {
     st.enabled = !st.enabled;
-    const ok = sendNow(st.enabled);
+    const ok = st.enabled ? applyNow() : resendReal();
     ui?.toasts?.showToast?.(`${st.enabled ? "Enabled" : "Disabled"} fake deafen${ok ? "" : " (no voice connection)"}.`);
     return st.enabled;
   };
@@ -135,14 +173,19 @@
         );
       return React.createElement(React.Fragment, null,
         row("Fake Deafen",
-            "Force self_deaf in voice state updates.",
+            "Force self_deaf in outbound voice state updates.",
             p.enabled,
-            (v) => { p.enabled = v; applyNow(); },
+            (v) => { p.enabled = v; if (v) applyNow(); else resendReal(); },
             true),
         row("Also force mute",
             "Force self_mute alongside deafen.",
             p.forceMute,
-            (v) => { p.forceMute = v; applyNow(); },
+            (v) => { p.forceMute = v; if (st.enabled) applyNow(); },
+            false),
+        row("Force deafen",
+            "Toggle forcing self_deaf separately.",
+            p.forceDeafen,
+            (v) => { p.forceDeafen = v; if (st.enabled) applyNow(); },
             false),
       );
     } catch { return null; }
@@ -159,7 +202,8 @@
     onUnload: () => {
       try { if (timer) { clearInterval(timer); timer = null; } } catch {}
       try { unpatchers.forEach((u) => { try { u(); } catch {} }); } catch {}
-      try { sendNow(false); } catch {}
+      st.enabled = false;
+      try { resendReal(); } catch {}
       try { commands?.unregisterCommand?.("fd"); } catch {}
     },
   };
