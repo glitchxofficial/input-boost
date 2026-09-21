@@ -311,8 +311,7 @@
           { transform: [{ translateX: pan.x }, { translateY: pan.y }, { scale }] },
         ],
       },
-        React.createElement(Text, { style: { color: "#ffffff", fontWeight: "800", fontSize: 16 } }, "FD"),
-        React.createElement(Text, { style: { color: "#ffffff", fontSize: 8, opacity: 0.9 } }, enabled ? "ON" : "OFF"),
+        React.createElement(Text, { style: { color: "#ffffff", fontWeight: "800", fontSize: 20 } }, enabled ? "E" : "D"),
       ));
     } catch { return null; }
   };
